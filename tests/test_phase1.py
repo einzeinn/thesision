@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import pytest
 
 from src.backend.app.main import app
 from src.backend.orchestrator.reasoning_orchestrator import ReasoningOrchestrator
@@ -7,7 +8,7 @@ from src.backend.orchestrator.reasoning_orchestrator import ReasoningOrchestrato
 class FakeReasoningModel:
     def generate_json(self, instruction, payload):
         if instruction.startswith("Identify evidence"):
-            return {"evidence": [{"claim": "FastAPI is suitable for I/O workloads.", "source_title": "FastAPI docs", "url": "https://fastapi.tiangolo.com/", "relevance": "high", "quality": 100}]}
+            return {"evidence": [{"claim": "FastAPI is suitable for I/O workloads.", "source_title": "FastAPI docs", "url": "https://fastapi.tiangolo.com/", "relevance": "high", "quality": "high"}]}
         if instruction.startswith("Generate engineering hypotheses"):
             return {"hypotheses": [{"claim": "The migration depends on workload.", "assumptions": [], "unknowns": []}]}
         if instruction.startswith("Analyze the engineering"):
@@ -58,6 +59,8 @@ def test_run_pipeline_advances_stage_and_persists_state():
     assert state["stages"]["conclusion"]["status"] == "completed"
     assert state["confidence"]["score"] >= 90
     assert state["conclusion"]["conclusion"] == "Measure before migrating."
+    assert {node["type"] for node in state["nodes"]} >= {"hypothesis", "evidence", "perspective", "conflict", "judge", "conclusion"}
+    assert all("round" in node for node in state["nodes"])
 
 
 def test_run_fails_explicitly_without_an_openai_key():
@@ -96,12 +99,43 @@ def test_aimlapi_uses_its_openai_compatible_chat_endpoint(monkeypatch):
     assert calls[0][1]["json"]["model"] == "gpt-4o"
 
 
+def test_aimlapi_non_json_response_is_an_explicit_provider_error(monkeypatch):
+    from src.backend.services.openai_client import ConfiguredReasoningClient, ReasoningProviderError
+
+    class Response:
+        text = "Internal Server Error"
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise ValueError("not JSON")
+
+    monkeypatch.setattr("src.backend.services.openai_client.httpx.post", lambda *args, **kwargs: Response())
+
+    with pytest.raises(ReasoningProviderError, match="AI/ML API returned a non-JSON response"):
+        ConfiguredReasoningClient(api_key="test-key", provider="aimlapi").generate_json("Return JSON", {})
+
+
 def test_reasoning_workspace_serves_an_interactive_graph_shell():
     response = client.get("/")
 
     assert response.status_code == 200
     assert 'id="graph"' in response.text
-    assert "Node inspection" in response.text
+    assert "d3@7" in response.text
+    assert "animejs" in response.text
+    assert 'id="replay-button"' in response.text
+    assert 'id="progress-list"' in response.text
+
+
+def test_start_endpoint_accepts_a_persisted_session():
+    app.state.orchestrator = ReasoningOrchestrator(FakeReasoningModel())
+    created = client.post("/api/sessions", json={"question": "Should we keep the current stack?"}).json()
+
+    response = client.post(f"/api/sessions/{created['session_id']}/start")
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "started"
 
 
 def test_exports_match_the_persisted_reasoning_session():

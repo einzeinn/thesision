@@ -50,6 +50,12 @@ This plan is derived from the repository documentation and is limited to the MVP
 - Outcome: the MVP has documented setup and demo guidance, clear workspace states, API input limits, protected exports, and regression coverage for core contracts.
 - Deliverables: demo runbook, safe local environment configuration, loading/success/failure UI states, input validation, export guards, and hardening tests.
 
+## Post-Phase 5 UX Refinement Status
+
+- Status: completed
+- Outcome: the MVP reasoning graph now has a stable all-circle visual language and a constrained radial layout that preserves readable reasoning flow during progressive rendering.
+- Deliverables: opacity-only node reveal, simple continuation paths, compact left sidebar, and updated design/phase documentation.
+
 ## Out of Scope
 
 - Chatbot-style interface.

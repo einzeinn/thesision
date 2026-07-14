@@ -54,7 +54,7 @@ class ConfiguredReasoningClient:
                 timeout=60.0,
             )
             response.raise_for_status()
-            response_body = response.json()
+            response_body = self._read_response_json(response, "OpenAI")
         except httpx.HTTPError as error:
             raise ReasoningProviderError(f"OpenAI request failed: {error}") from error
 
@@ -78,13 +78,24 @@ class ConfiguredReasoningClient:
                 timeout=60.0,
             )
             response.raise_for_status()
-            response_body = response.json()
+            response_body = self._read_response_json(response, "AI/ML API")
         except httpx.HTTPError as error:
             raise ReasoningProviderError(f"AI/ML API request failed: {error}") from error
 
         choices = response_body.get("choices", [])
         output_text = choices[0].get("message", {}).get("content") if choices else None
         return self._parse_json_output(output_text, "AI/ML API")
+
+    @staticmethod
+    def _read_response_json(response: httpx.Response, provider_name: str) -> dict[str, Any]:
+        try:
+            payload = response.json()
+        except ValueError as error:
+            body_preview = response.text[:200].strip() or "an empty response"
+            raise ReasoningProviderError(f"{provider_name} returned a non-JSON response: {body_preview}") from error
+        if not isinstance(payload, dict):
+            raise ReasoningProviderError(f"{provider_name} returned a JSON response with the wrong shape.")
+        return payload
 
     @staticmethod
     def _parse_json_output(output_text: Any, provider_name: str) -> dict[str, Any]:

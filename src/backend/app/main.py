@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -71,6 +71,23 @@ def run_session(session_id: str) -> dict:
     if completed_session["state"]["status"] == "failed":
         raise HTTPException(status_code=503, detail=completed_session["state"]["errors"][-1])
     return {"status": "completed", "session": completed_session}
+
+
+def _run_session_in_background(session_id: str) -> None:
+    session = get_session(session_id)
+    if session is not None:
+        app.state.orchestrator.run(session)
+
+
+@app.post("/api/sessions/{session_id}/start", status_code=202)
+def start_session(session_id: str, background_tasks: BackgroundTasks) -> dict:
+    session = get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session["state"].get("status") == "running":
+        raise HTTPException(status_code=409, detail="Reasoning is already running")
+    background_tasks.add_task(_run_session_in_background, session_id)
+    return {"status": "started", "session_id": session_id}
 
 
 def _require_session(session_id: str) -> dict:

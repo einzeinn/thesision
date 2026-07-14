@@ -45,6 +45,7 @@ def create_session(question: str, context: Optional[str] = None) -> Dict[str, An
         "status": "created",
         "iteration": 0,
         "nodes": [],
+        "edges": [],
         "stages": {"question": {"status": "completed"}},
         "metadata": {"context": context or ""},
         "pipeline": PIPELINE_STAGES,

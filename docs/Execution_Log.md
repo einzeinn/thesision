@@ -62,6 +62,30 @@
 - Added environment variables for provider selection, API key, and model without storing credentials in source control.
 - Kept OpenAI as an optional alternative and verified the AI/ML API request shape with an isolated test.
 
+### 2026-07-15 - AI/ML API Error Handling
+
+- Normalized non-JSON provider responses into explicit, inspectable API errors instead of allowing an internal server error to reach the browser.
+- Updated the frontend to display error bodies safely even when a server response is not JSON.
+- Normalized qualitative evidence scores returned by the model before confidence calculation and added a session-level guard for unexpected pipeline errors.
+
+### 2026-07-15 - Design System Implementation
+
+- Implemented the updated line-art research-workspace visual system from `Design.md`.
+- Added round-aware graph nodes, conflict nodes, sparse expandable reasoning cards, and dense force-directed debate graphs.
+- Added color-semantic flow, continuation, and thread edges plus staged node and link reveal through the documented graph libraries.
+- Implemented the revised initial state, progressive sidebar, conditional evidence/export panel, and conclusion replay control.
+- Changed the session run path to persist and expose stage-by-stage progress so the graph grows during reasoning instead of appearing only after the final conclusion.
+- Replaced the incomplete D3 force bundle with the complete D3 distribution to include the timer dependency required by the simulation.
+
+### 2026-07-15 - Graph Legibility Refinement
+
+- Removed the sparse card renderer: every reasoning state now uses circular SVG nodes so node-to-edge relationships remain visible.
+- Constrained the force layout using fixed semantic lanes and round radius targets; continuation links use a simple outer path to avoid crossing the center of the graph.
+- Replaced transform-based node animation with opacity-only Web Animations API reveals, which keeps each SVG group's simulation transform intact and prevents disappearing nodes.
+- Reduced the left input panel to a compact sidebar and aligned `Design.md`, `TASK.md`, `PHASE_REPORT.md`, and the roadmap with the refinement.
+- Verification: `10 passed` via `./.venv/Scripts/python.exe -m pytest -q` (two environment warnings only).
+- Current status: MVP phases 0–5 and the graph-legibility refinement are complete; demo video capture remains pending.
+
 ## Log Format
 
 Future executions should add a new dated section with:

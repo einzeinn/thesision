@@ -135,7 +135,7 @@ Polish
 
 Status
 
-Implementation completed; demo video pending capture
+Implementation completed, including the graph-legibility and compact-sidebar refinement; demo video pending capture
 
 Goal
 
