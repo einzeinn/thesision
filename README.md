@@ -28,6 +28,13 @@ pip install fastapi uvicorn pytest httpx
 
 ### Run the backend
 
+Set the OpenAI key in the current PowerShell session before running reasoning:
+
+```powershell
+$env:OPENAI_API_KEY = "your-key"
+# Optional: $env:OPENAI_MODEL = "gpt-4.1-mini"
+```
+
 ```powershell
 uvicorn src.backend.app.main:app --reload
 ```

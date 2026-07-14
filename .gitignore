@@ -6,6 +6,7 @@ __pycache__/
 *.pyc
 *.sqlite3
 *.db
+data/
 
 # Virtual environments
 .venv/

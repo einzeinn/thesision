@@ -45,10 +45,11 @@ def create_session(question: str, context: Optional[str] = None) -> Dict[str, An
         "status": "created",
         "iteration": 0,
         "nodes": [],
-        "stages": ["question"],
+        "stages": {"question": {"status": "completed"}},
         "metadata": {"context": context or ""},
         "pipeline": PIPELINE_STAGES,
         "summary": None,
+        "errors": [],
     }
     created_at = datetime.now(timezone.utc).isoformat()
 
@@ -90,35 +91,10 @@ def get_session(session_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def update_session_run(session_id: str) -> Optional[Dict[str, Any]]:
+def update_session_state(session_id: str, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     session = get_session(session_id)
     if session is None:
         return None
-
-    state = dict(session["state"])
-    state["current_stage"] = "conclusion"
-    state["status"] = "completed"
-    state["iteration"] = state.get("iteration", 0) + 1
-    state.setdefault("nodes", []).extend(
-        [
-            {"id": "question-node", "type": "question", "status": "completed"},
-            {"id": "hypothesis-node", "type": "hypothesis", "status": "completed"},
-            {"id": "conclusion-node", "type": "conclusion", "status": "completed"},
-        ]
-    )
-    state["stages"] = [
-        "question",
-        "hypothesis",
-        "evidence",
-        "perspectives",
-        "judge",
-        "confidence",
-        "conclusion",
-    ]
-    state["summary"] = {
-        "question": session["question"],
-        "conclusion": "Reasoning workflow prepared for Phase 2 orchestration.",
-    }
 
     connection = _connect()
     connection.execute(

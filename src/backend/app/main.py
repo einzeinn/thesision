@@ -7,13 +7,16 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from src.backend.state.session_store import create_session, get_session, update_session_run
+from src.backend.orchestrator.reasoning_orchestrator import ReasoningOrchestrator
+from src.backend.services.openai_client import OpenAIResponsesClient
+from src.backend.state.session_store import create_session, get_session
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 FRONTEND_DIR = ROOT_DIR / "src" / "frontend" / "app"
 INDEX_HTML = FRONTEND_DIR / "index.html"
 
 app = FastAPI(title="Thesision", version="0.1.0")
+app.state.orchestrator = ReasoningOrchestrator(OpenAIResponsesClient())
 
 app.add_middleware(
     CORSMiddleware,
@@ -60,7 +63,10 @@ def get_session_endpoint(session_id: str) -> dict:
 
 @app.post("/api/sessions/{session_id}/run")
 def run_session(session_id: str) -> dict:
-    session = update_session_run(session_id)
+    session = get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    return {"status": "completed", "session": session}
+    completed_session = app.state.orchestrator.run(session)
+    if completed_session["state"]["status"] == "failed":
+        raise HTTPException(status_code=503, detail=completed_session["state"]["errors"][-1])
+    return {"status": "completed", "session": completed_session}

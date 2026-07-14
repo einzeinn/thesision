@@ -46,13 +46,13 @@ Tasks
 - Project initialization
 - Frontend setup
 - Backend setup
-- OpenAI integration
+- OpenAI integration boundary and environment configuration
 - Session management
 - API communication
 
 Success
 
-The application can receive a question and execute the reasoning pipeline.
+The application can receive a question, persist a session, and has a configured boundary for the reasoning provider. Full reasoning execution belongs to Phase 2.
 
 ---
 
@@ -82,6 +82,10 @@ The reasoning pipeline works end-to-end.
 # Phase 3
 
 Visualization
+
+Status
+
+Completed
 
 Goal
 
