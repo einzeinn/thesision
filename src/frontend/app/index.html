@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Thesision</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
+      .shell { max-width: 960px; margin: 0 auto; padding: 32px 20px; }
+      .panel { background: #111827; border: 1px solid #334155; border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+      input, textarea, button { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #475569; margin-top: 8px; }
+      button { background: #2563eb; color: white; cursor: pointer; }
+      code { background: #1e293b; padding: 2px 4px; border-radius: 6px; }
+      .status { margin-top: 12px; color: #93c5fd; }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="panel">
+        <h1>Thesision</h1>
+        <p>Reasoning workspace for software engineering decisions.</p>
+        <form id="question-form">
+          <label for="question">Question</label>
+          <textarea id="question" rows="4" placeholder="Ask an engineering question..."></textarea>
+          <label for="context">Context</label>
+          <input id="context" placeholder="Optional context" />
+          <button type="submit">Start reasoning</button>
+        </form>
+        <div id="status" class="status">Waiting for a new reasoning session.</div>
+      </div>
+      <div class="panel">
+        <h2>Session state</h2>
+        <pre id="session-output">No session yet.</pre>
+      </div>
+    </div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
