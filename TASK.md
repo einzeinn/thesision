@@ -23,8 +23,32 @@ This plan is derived from the repository documentation and is limited to the MVP
 ## Phase 1 Status
 
 - Status: completed
-- Outcome: backend skeleton, session persistence, and frontend shell implemented for the MVP request flow, with structured reasoning state progression ready for orchestration.
-- Deliverables: FastAPI session API, SQLite-backed session store, structured pipeline state, simple reasoning workspace UI, and verified tests for session creation and progression.
+- Outcome: backend skeleton, session persistence, frontend shell, and the OpenAI integration boundary are implemented for the MVP request flow. The boundary fails explicitly when its environment configuration is absent; it never fabricates AI reasoning.
+- Deliverables: FastAPI session API, SQLite-backed session store, structured pipeline state, simple reasoning workspace UI, OpenAI client configuration, and verified tests for session creation and progression.
+
+## Phase 2 Status
+
+- Status: completed
+- Outcome: the Orchestrator coordinates every documented reasoning stage and persists its complete, inspectable session state.
+- Deliverables: hypothesis, evidence, perspective, judge, confidence, and conclusion stages; confidence-based stop conditions; explicit provider errors; and automated pipeline tests.
+
+## Phase 3 Status
+
+- Status: completed
+- Outcome: the reasoning workspace now renders an interactive, inspectable graph as its primary interface.
+- Deliverables: three-panel workspace, graph nodes and edges, stage-aware confidence indicator, evidence references, node inspection, and reduced-motion control.
+
+## Phase 4 Status
+
+- Status: completed
+- Outcome: completed reasoning sessions can be exported as Markdown reports or portable JSON without diverging from their persisted state.
+- Deliverables: export generator, download endpoints, workspace export controls, and equality tests for JSON session exports.
+
+## Phase 5 Status
+
+- Status: implementation completed; demo video pending capture
+- Outcome: the MVP has documented setup and demo guidance, clear workspace states, API input limits, protected exports, and regression coverage for core contracts.
+- Deliverables: demo runbook, safe local environment configuration, loading/success/failure UI states, input validation, export guards, and hardening tests.
 
 ## Out of Scope
 
@@ -56,6 +80,7 @@ Milestones:
 - Frontend can send a question to the backend.
 - Backend can create and persist a reasoning session.
 - End-to-end API contract is defined.
+- OpenAI integration is configured through environment variables and reports missing configuration explicitly.
 
 ### Phase 2: Orchestration and Reasoning Engine
 

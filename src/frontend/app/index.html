@@ -3,36 +3,66 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Thesision</title>
+    <title>Thesision | Reason Before Decision</title>
     <style>
-      body { font-family: Arial, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
-      .shell { max-width: 960px; margin: 0 auto; padding: 32px 20px; }
-      .panel { background: #111827; border: 1px solid #334155; border-radius: 16px; padding: 20px; margin-bottom: 16px; }
-      input, textarea, button { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #475569; margin-top: 8px; }
-      button { background: #2563eb; color: white; cursor: pointer; }
-      code { background: #1e293b; padding: 2px 4px; border-radius: 6px; }
-      .status { margin-top: 12px; color: #93c5fd; }
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #09111f; color: #d9e6f5; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 980px; background-color: #09111f; background-image: linear-gradient(#12223888 1px, transparent 1px), linear-gradient(90deg, #12223888 1px, transparent 1px); background-size: 28px 28px; }
+      .workspace { display: grid; grid-template-columns: 280px minmax(500px, 1fr) 320px; height: 100vh; gap: 1px; background: #294052; }
+      .panel { min-width: 0; background: #09111fef; padding: 22px; overflow: auto; }
+      .brand { color: #b9d8ff; letter-spacing: .12em; margin: 0; font-size: 1.25rem; }
+      .eyebrow, .label { color: #7594b4; font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; }
+      .subtitle { color: #91a9c2; margin: 6px 0 28px; font-size: .88rem; }
+      label { display: block; margin-top: 17px; }
+      textarea, input { width: 100%; margin-top: 7px; background: #0e1a2a; color: #e6f0fa; border: 1px solid #28445c; border-radius: 8px; padding: 10px; font: inherit; }
+      textarea:focus, input:focus { outline: 2px solid #478fd0; border-color: transparent; }
+      button { width: 100%; margin-top: 18px; padding: 11px; border: 0; border-radius: 8px; background: #347ec4; color: white; cursor: pointer; font-weight: 650; }
+      button:hover { background: #4594dc; } button:disabled { opacity: .55; cursor: wait; }
+      .motion-control { display: flex; align-items: center; gap: 8px; margin-top: 16px; color: #9cb2c7; font-size: .82rem; } .motion-control input { width: auto; margin: 0; }
+      .status { margin-top: 18px; border-left: 2px solid #4a94d8; padding-left: 10px; color: #aac8e4; font-size: .85rem; line-height: 1.45; } .status[data-state="error"] { border-color: #e25f67; color: #ffc2c7; } .status[data-state="complete"] { border-color: #58b98d; color: #b7edd4; }
+      .graph-panel { display: flex; flex-direction: column; padding: 0; }
+      .graph-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid #294052; }
+      .graph-header h2 { margin: 0; font-size: 1rem; font-weight: 600; } .graph-header span { color: #6d8ba8; font-size: .8rem; }
+      #graph { width: 100%; flex: 1; min-height: 560px; } .edge { stroke: #365a78; stroke-width: 2; stroke-dasharray: 6 7; }
+      .node { cursor: pointer; } .node rect { stroke-width: 1.5; transition: filter .2s, stroke-width .2s; } .node:hover rect, .node.selected rect { stroke: #e9f5ff; stroke-width: 3; filter: drop-shadow(0 0 7px #73b9ff99); }
+      .node text { fill: #e5f1fc; pointer-events: none; font-size: 12px; font-weight: 650; } .node .stage { fill: #9db7ce; font-size: 9px; font-weight: 400; letter-spacing: .08em; }
+      .node-enter { animation: emerge .42s ease-out both; } @keyframes emerge { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: scale(1); } }
+      .right-panel h2 { margin: 6px 0 15px; font-size: 1.05rem; } .details { border: 1px solid #29445c; border-radius: 10px; padding: 13px; background: #0d1928; min-height: 120px; color: #b7c9d9; font-size: .86rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .confidence { margin: 22px 0; } .confidence-row { display: flex; justify-content: space-between; font-size: .84rem; color: #a9bed2; } .meter { height: 7px; margin-top: 8px; border-radius: 10px; background: #1a2d40; overflow: hidden; } .meter > div { height: 100%; background: linear-gradient(90deg, #3c80c0, #55c49d); transition: width .4s; }
+      .evidence-list { margin: 7px 0 0; padding: 0; list-style: none; } .evidence-list li { padding: 10px 0; border-bottom: 1px solid #1d354a; font-size: .82rem; color: #b7c9d9; } .evidence-list a { color: #69b8ff; display: block; margin-top: 3px; text-decoration: none; }
+      .exports { margin-top: 22px; } .exports button { margin-top: 8px; background: #163653; border: 1px solid #315a7e; } .exports button:hover { background: #204b70; }
+      .empty { color: #6f8da8; font-size: .87rem; }
+      @media (prefers-reduced-motion: reduce) { .node-enter { animation: none; } .meter > div { transition: none; } }
+      body.reduce-motion .node-enter { animation: none; } body.reduce-motion .meter > div { transition: none; }
     </style>
   </head>
   <body>
-    <div class="shell">
-      <div class="panel">
-        <h1>Thesision</h1>
-        <p>Reasoning workspace for software engineering decisions.</p>
+    <main class="workspace">
+      <aside class="panel">
+        <p class="eyebrow">Engineering reasoning</p><h1 class="brand">THESISION</h1>
+        <p class="subtitle">Reason before decision.</p>
         <form id="question-form">
-          <label for="question">Question</label>
-          <textarea id="question" rows="4" placeholder="Ask an engineering question..."></textarea>
-          <label for="context">Context</label>
-          <input id="context" placeholder="Optional context" />
-          <button type="submit">Start reasoning</button>
+          <label class="label" for="question">Decision question</label>
+          <textarea id="question" rows="6" required placeholder="Should I migrate my backend from FastAPI to Go?"></textarea>
+          <label class="label" for="context">Engineering context</label>
+          <input id="context" placeholder="Optional constraints or workload" />
+          <button id="run-button" type="submit">Start reasoning</button>
         </form>
-        <div id="status" class="status">Waiting for a new reasoning session.</div>
-      </div>
-      <div class="panel">
-        <h2>Session state</h2>
-        <pre id="session-output">No session yet.</pre>
-      </div>
-    </div>
+        <label class="motion-control"><input id="reduce-motion" type="checkbox" /> Reduce graph motion</label>
+        <div id="status" class="status" role="status" aria-live="polite">Ready for a technical decision.</div>
+      </aside>
+      <section class="panel graph-panel" aria-label="Reasoning graph workspace" aria-busy="false">
+        <header class="graph-header"><h2>Reasoning graph</h2><span id="graph-meta">No active session</span></header>
+        <svg id="graph" viewBox="0 0 760 620" role="img" aria-label="Interactive reasoning graph"></svg>
+      </section>
+      <aside class="panel right-panel">
+        <p class="eyebrow">Node inspection</p><h2 id="detail-title">Select a node</h2>
+        <div id="node-details" class="details">Run a session, then select a node to inspect its structured reasoning.</div>
+        <section class="confidence"><div class="confidence-row"><span>Confidence</span><strong id="confidence-value">—</strong></div><div class="meter"><div id="confidence-meter" style="width: 0%"></div></div></section>
+        <p class="eyebrow">Evidence references</p><ul id="evidence-list" class="evidence-list"><li class="empty">Evidence will appear after reasoning completes.</li></ul>
+        <section class="exports"><p class="eyebrow">Reusable outputs</p><button id="export-markdown" type="button" disabled>Export Markdown</button><button id="export-json" type="button" disabled>Export JSON</button></section>
+      </aside>
+    </main>
     <script src="/static/app.js"></script>
   </body>
 </html>
