@@ -66,20 +66,17 @@ function graphData(session) {
   return { nodes, edges, rounds: session.state.iteration || 1 };
 }
 
-function reveal(target, delay = 0) {
-  if (document.body.classList.contains('reduce-motion')) return;
-  target.style.opacity = '0';
-  target.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 360, delay, easing: 'ease-out', fill: 'forwards' });
+function animateNodes(nodes) {
+  if (document.body.classList.contains('reduce-motion') || !window.anime) { nodes.forEach((node) => { node.style.opacity = '1'; node.style.transform = 'scale(1)'; }); return; }
+  window.anime({ targets: nodes, opacity: [0, 1], scale: [.8, 1], duration: 430, easing: 'easeOutQuad', delay: window.anime.stagger(42) });
 }
+function animateEdges(edges) {
+  if (document.body.classList.contains('reduce-motion') || !window.anime) { edges.forEach((edge) => finishEdge(edge)); return; }
+  window.anime({ targets: edges, strokeDashoffset: (edge) => [Number(edge.dataset.length), 0], opacity: [0.45, 1], duration: 430, easing: 'easeInOutQuad', delay: window.anime.stagger(34), complete: (animation) => animation.animatables.forEach(({ target }) => finishEdge(target)) });
+}
+function finishEdge(edge) { edge.style.opacity = '1'; edge.setAttribute('stroke-dashoffset', '0'); if (edge.dataset.thread === 'true') edge.setAttribute('stroke-dasharray', '4 4'); }
 function selectDenseNode(node, element) { document.querySelectorAll('.graph-node').forEach((item) => item.classList.remove('selected')); element.classList.add('selected'); detailStrip.innerHTML = `<strong>${labels[node.type]} / ROUND ${node.round}</strong><p>${summary(node)}</p>`; }
 
-function lanePosition(node, centerX, centerY) {
-  const angles = { hypothesis: -120, evidence: -72, perspective: -24, conflict: 24, judge: 72, conclusion: 132 };
-  if (node.type === 'question') return { x: centerX, y: centerY };
-  const radius = node.type === 'conclusion' ? (node.round + .25) * 108 : node.round * 108;
-  const angle = (angles[node.type] ?? 0) * Math.PI / 180;
-  return { x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius };
-}
 function continuationPath(edge, centerX, centerY) {
   const middleX = (edge.source.x + edge.target.x) / 2; const middleY = (edge.source.y + edge.target.y) / 2;
   const distance = Math.hypot(middleX - centerX, middleY - centerY) || 1;
@@ -91,13 +88,16 @@ function continuationPath(edge, centerX, centerY) {
 function renderGraphLayout(data) {
   graph.replaceChildren(); const width = graph.clientWidth || 700; const height = graph.clientHeight || 590; const centerX = width / 2; const centerY = height / 2;
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', `0 0 ${width} ${height}`); graph.append(svg);
-  const nodes = data.nodes.map((node) => ({ ...node, ...lanePosition(node, centerX, centerY) })); const byId = new Map(nodes.map((node) => [node.id, node])); const links = data.edges.filter((edge) => byId.has(edge.source) && byId.has(edge.target)).map((edge) => ({ ...edge, source: byId.get(edge.source), target: byId.get(edge.target) }));
+  const nodes = data.nodes.map((node) => ({ ...node })); const byId = new Map(nodes.map((node) => [node.id, node])); const links = data.edges.filter((edge) => byId.has(edge.source) && byId.has(edge.target)).map((edge) => ({ ...edge, source: byId.get(edge.source), target: byId.get(edge.target) }));
   if (window.d3?.forceSimulation) {
-    const simulation = window.d3.forceSimulation(nodes).force('link', window.d3.forceLink(links).id((node) => node.id).distance(76).strength(.08)).force('charge', window.d3.forceManyBody().strength(-24)).force('x', window.d3.forceX((node) => lanePosition(node, centerX, centerY).x).strength(.8)).force('y', window.d3.forceY((node) => lanePosition(node, centerX, centerY).y).strength(.8)).force('collide', window.d3.forceCollide((node) => node.type === 'question' || node.type === 'conclusion' ? 24 : 18).iterations(2)).stop();
+    const simulation = window.d3.forceSimulation(nodes).force('link', window.d3.forceLink(links).id((node) => node.id).distance((edge) => edge.kind === 'thread' ? 74 : 92).strength((edge) => edge.kind === 'thread' ? .5 : .62)).force('charge', window.d3.forceManyBody().strength(-220)).force('radial', window.d3.forceRadial((node) => node.round * 108, centerX, centerY).strength(.3)).force('collide', window.d3.forceCollide((node) => node.type === 'question' || node.type === 'conclusion' ? 24 : 18).iterations(2)).stop();
     const question = nodes.find((node) => node.type === 'question'); if (question) { question.fx = centerX; question.fy = centerY; } for (let tick = 0; tick < 180; tick += 1) simulation.tick();
+  } else {
+    nodes.forEach((node, index) => { if (node.type === 'question') { node.x = centerX; node.y = centerY; return; } const angle = index * 2.399963229728653; const radius = node.round * 108; node.x = centerX + Math.cos(angle) * radius; node.y = centerY + Math.sin(angle) * radius; });
   }
-  links.forEach((edge, index) => { const line = document.createElementNS('http://www.w3.org/2000/svg', edge.kind === 'continuation' ? 'path' : 'line'); line.classList.add('edge', edge.kind); if (edge.kind === 'continuation') line.setAttribute('d', continuationPath(edge, centerX, centerY)); else { line.setAttribute('x1', edge.source.x); line.setAttribute('y1', edge.source.y); line.setAttribute('x2', edge.target.x); line.setAttribute('y2', edge.target.y); } line.setAttribute('stroke', edge.kind === 'thread' ? '#8e8b84' : colors[edge.target.type]); svg.append(line); reveal(line, index * 28); });
-  nodes.forEach((node, index) => { const group = document.createElementNS('http://www.w3.org/2000/svg', 'g'); group.classList.add('graph-node', node.type); group.setAttribute('transform', `translate(${node.x},${node.y})`); const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); const radius = node.type === 'question' || node.type === 'conclusion' ? 16 : 10; circle.setAttribute('r', radius); circle.setAttribute('stroke', colors[node.type]); const text = document.createElementNS('http://www.w3.org/2000/svg', 'text'); text.setAttribute('x', radius + 7); text.setAttribute('y', 3); text.textContent = labels[node.type]; group.append(circle, text); group.addEventListener('click', () => selectDenseNode(node, group)); svg.append(group); reveal(group, 90 + index * 42); });
+  const edgeElements = links.map((edge) => { const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.classList.add('edge', edge.kind); path.setAttribute('d', edge.kind === 'continuation' ? continuationPath(edge, centerX, centerY) : `M ${edge.source.x} ${edge.source.y} L ${edge.target.x} ${edge.target.y}`); path.setAttribute('stroke', edge.kind === 'thread' ? '#8e8b84' : colors[edge.target.type]); svg.append(path); const length = path.getTotalLength(); path.dataset.length = String(length); path.dataset.thread = String(edge.kind === 'thread'); path.setAttribute('stroke-dasharray', `${length} ${length}`); path.setAttribute('stroke-dashoffset', String(length)); path.style.opacity = '0.45'; return path; });
+  const nodeVisuals = nodes.map((node) => { const group = document.createElementNS('http://www.w3.org/2000/svg', 'g'); group.classList.add('graph-node', node.type); group.setAttribute('transform', `translate(${node.x},${node.y})`); const visual = document.createElementNS('http://www.w3.org/2000/svg', 'g'); visual.classList.add('node-visual'); const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); const radius = node.type === 'question' || node.type === 'conclusion' ? 16 : 10; circle.setAttribute('r', radius); circle.setAttribute('stroke', colors[node.type]); const text = document.createElementNS('http://www.w3.org/2000/svg', 'text'); text.setAttribute('x', radius + 7); text.setAttribute('y', 3); text.textContent = labels[node.type]; visual.append(circle, text); group.append(visual); group.addEventListener('click', () => selectDenseNode(node, group)); svg.append(group); return visual; });
+  animateEdges(edgeElements); animateNodes(nodeVisuals);
   detailStrip.innerHTML = '<strong>REASONING GRAPH</strong><p>Select a circle to inspect its stage, round, and reasoning summary.</p>';
 }
 

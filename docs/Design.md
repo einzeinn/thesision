@@ -153,7 +153,7 @@ If a session ever supports multiple parallel hypotheses, `thread` links should k
 
 Connections should grow instead of appearing instantly:
 
-- Nodes fade in with a staggered delay (small, incremental delay per node — not simultaneous). Reveal animation must never overwrite the SVG transform that stores a node's settled position.
+- Nodes fade and scale in with a staggered delay (small, incremental delay per node — not simultaneous). The scale animation must target an inner SVG group, never the outer group whose transform stores the node's settled position.
 - Links fade in independently, staggered slightly ahead of or alongside the nodes they connect.
 - On mount, the simulation should already be settled (run enough ticks server-side or synchronously before first paint) so nodes don't visibly jitter into place — only the fade/stagger reveal should be visible, not the physics settling.
 
@@ -168,7 +168,7 @@ Animation library: anime.js.
 Recommended
 
 - fade
-- opacity-only reveal for positioned graph nodes
+- fade-and-scale reveal for the inner visual group of positioned graph nodes
 - line drawing (animate `stroke-dashoffset` on connection paths for a "being drawn" feel)
 - staggered reveal (`anime.stagger()`) for both nodes and links when a new round of reasoning appears
 - smooth expand/collapse (animate `height` from `0` to measured content height, then set to `auto` on completion so it stays responsive to dynamic content)
