@@ -38,6 +38,18 @@ This plan is derived from the repository documentation and is limited to the MVP
 - Outcome: the reasoning workspace now renders an interactive, inspectable graph as its primary interface.
 - Deliverables: three-panel workspace, graph nodes and edges, stage-aware confidence indicator, evidence references, node inspection, and reduced-motion control.
 
+## Phase 4 Status
+
+- Status: completed
+- Outcome: completed reasoning sessions can be exported as Markdown reports or portable JSON without diverging from their persisted state.
+- Deliverables: export generator, download endpoints, workspace export controls, and equality tests for JSON session exports.
+
+## Phase 5 Status
+
+- Status: implementation completed; demo video pending capture
+- Outcome: the MVP has documented setup and demo guidance, clear workspace states, API input limits, protected exports, and regression coverage for core contracts.
+- Deliverables: demo runbook, safe local environment configuration, loading/success/failure UI states, input validation, export guards, and hardening tests.
+
 ## Out of Scope
 
 - Chatbot-style interface.

@@ -269,6 +269,22 @@ Benefits
 
 ---
 
+# Decision 12
+
+## Explicit Runtime Provider Configuration
+
+Status
+
+Accepted by explicit implementation request
+
+Reason
+
+The reasoning provider is selected through environment variables so a deployed or local instance can use the configured OpenAI-compatible AI/ML API endpoint without storing credentials in source control.
+
+The application supports one active provider per runtime. It does not introduce simultaneous multi-provider reasoning, which remains outside the MVP.
+
+---
+
 # Deferred Decisions
 
 The following decisions are intentionally postponed.

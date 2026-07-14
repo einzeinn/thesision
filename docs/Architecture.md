@@ -352,6 +352,8 @@ Reasoning
 
 OpenAI GPT Models
 
+AI/ML API (explicitly configured alternative)
+
 Storage
 
 JSON

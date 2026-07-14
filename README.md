@@ -23,16 +23,18 @@ This project implements an orchestrator-first reasoning workflow with:
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install fastapi uvicorn pytest httpx
+pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
 ### Run the backend
 
-Set the OpenAI key in the current PowerShell session before running reasoning:
+Configure one provider in `.env` before running reasoning. AI/ML API is supported through its OpenAI-compatible chat-completions endpoint:
 
 ```powershell
-$env:OPENAI_API_KEY = "your-key"
-# Optional: $env:OPENAI_MODEL = "gpt-4.1-mini"
+$env:AI_PROVIDER = "aimlapi"
+$env:AIMLAPI_API_KEY = "your-key"
+# Optional: $env:AIMLAPI_MODEL = "gpt-4o"
 ```
 
 ```powershell

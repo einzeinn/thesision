@@ -1,29 +1,24 @@
-# Phase 3 Report
+# Phase 5 Report
 
 ## Objective
 
-Visualize the persisted reasoning state as an inspectable workspace rather than a chat transcript.
+Harden the MVP and make it ready for a transparent engineering-reasoning demonstration.
 
 ## Delivered
 
-- A desktop-first three-panel reasoning workspace.
-- An SVG graph for the Question, Hypothesis, Evidence, Perspectives, Judge, Confidence, and Conclusion stages.
-- Semantic node colors, connected edges, and subtle node-entry motion.
-- Click-to-inspect structured reasoning data for every graph node.
-- Confidence and evidence-reference panels driven by the persisted session state.
-- A reduced-motion preference that disables graph animation.
-
-## Architecture Impact
-
-- The frontend remains display-only: it renders session state returned by the FastAPI API and performs no reasoning.
-- No dependency or architecture changes were needed; native SVG preserves the small MVP footprint.
+- A demo runbook that guides the full engineering-decision scenario.
+- Documented dependency and local-environment setup through `requirements.txt` and `.env.example`.
+- Accessible live workspace status with distinct loading, success, and error states.
+- API request size limits for questions and context.
+- Export guards that return a clear conflict response until reasoning completes.
+- Regression tests for validation and error handling.
 
 ## Verification Evidence
 
 - Ran: `.\.venv\Scripts\python.exe -m pytest -q`
-- Result: `4 passed in 0.48s`
+- Result: `7 passed in 0.63s`
 
 ## Current State
 
-- Phases 1, 2, and 3 are complete.
-- Phase 4 Markdown and JSON output generation is next.
+- All Phase 5 implementation work is complete.
+- The project is ready for a local demo using the documented runbook; recording the Phase 5 demo video remains a manual deliverable.

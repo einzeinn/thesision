@@ -1,6 +1,7 @@
 const form = document.getElementById('question-form');
 const status = document.getElementById('status');
 const graph = document.getElementById('graph');
+const graphPanel = document.querySelector('.graph-panel');
 const button = document.getElementById('run-button');
 const detailTitle = document.getElementById('detail-title');
 const details = document.getElementById('node-details');
@@ -8,13 +9,15 @@ const confidenceValue = document.getElementById('confidence-value');
 const confidenceMeter = document.getElementById('confidence-meter');
 const evidenceList = document.getElementById('evidence-list');
 const graphMeta = document.getElementById('graph-meta');
+const exportMarkdown = document.getElementById('export-markdown');
+const exportJson = document.getElementById('export-json');
+let activeSessionId = null;
 
 const stageColors = { question: '#3977b5', hypothesis: '#b28a35', evidence: '#317a9d', perspectives: '#b76935', judge: '#3d9871', confidence: '#4e8d8a', conclusion: '#7654b2' };
 const stageLabels = { question: 'QUESTION', hypothesis: 'HYPOTHESIS', evidence: 'EVIDENCE', perspectives: 'PERSPECTIVES', judge: 'JUDGE', confidence: 'CONFIDENCE', conclusion: 'CONCLUSION' };
 
 function textPreview(value) {
-  if (!value) return 'No structured output was recorded.';
-  return JSON.stringify(value, null, 2);
+  return value ? JSON.stringify(value, null, 2) : 'No structured output was recorded.';
 }
 
 function renderGraph(session) {
@@ -36,7 +39,7 @@ function renderGraph(session) {
     group.addEventListener('click', () => inspectNode(stage, session, group));
     graph.append(group);
   });
-  graphMeta.textContent = `Iteration ${state.iteration || 0} · ${state.status}`;
+  graphMeta.textContent = `Iteration ${state.iteration || 0} / ${state.status}`;
   inspectNode('question', session, graph.querySelector('[data-stage="question"]'));
 }
 
@@ -61,26 +64,49 @@ function renderEvidence(state) {
 
 function renderConfidence(state) {
   const score = state.confidence?.score;
-  confidenceValue.textContent = Number.isFinite(score) ? `${score}%` : '—';
+  confidenceValue.textContent = Number.isFinite(score) ? `${score}%` : '-';
   confidenceMeter.style.width = `${Number.isFinite(score) ? score : 0}%`;
+}
+
+function setStatus(message, state = 'running') {
+  status.textContent = message;
+  status.dataset.state = state;
 }
 
 document.getElementById('reduce-motion').addEventListener('change', (event) => document.body.classList.toggle('reduce-motion', event.target.checked));
 
+async function downloadExport(format) {
+  if (!activeSessionId) return;
+  const response = await fetch(`/api/sessions/${activeSessionId}/exports/${format}`);
+  if (!response.ok) { setStatus('Export unavailable for this session.', 'error'); return; }
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(await response.blob());
+  link.download = `thesision-${activeSessionId}.${format === 'markdown' ? 'md' : 'json'}`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+exportMarkdown.addEventListener('click', () => downloadExport('markdown'));
+exportJson.addEventListener('click', () => downloadExport('json'));
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   button.disabled = true;
-  status.textContent = 'Building hypothesis and evaluating evidence…';
+  graphPanel.setAttribute('aria-busy', 'true');
+  exportMarkdown.disabled = true; exportJson.disabled = true;
+  setStatus('Building hypothesis and evaluating evidence...');
   try {
     const createResponse = await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: document.getElementById('question').value, context: document.getElementById('context').value }) });
     if (!createResponse.ok) throw new Error((await createResponse.json()).detail || 'Unable to create the session.');
     const created = await createResponse.json();
-    status.textContent = 'Evaluating perspectives and resolving conflicts…';
+    setStatus('Evaluating perspectives and resolving conflicts...');
     const runResponse = await fetch(`/api/sessions/${created.session_id}/run`, { method: 'POST' });
     if (!runResponse.ok) throw new Error((await runResponse.json()).detail || 'Reasoning did not complete.');
     const payload = await runResponse.json();
     renderGraph(payload.session); renderEvidence(payload.session.state); renderConfidence(payload.session.state);
-    status.textContent = `Reasoning complete · session ${created.session_id.slice(0, 8)}`;
-  } catch (error) { status.textContent = `Reasoning unavailable: ${error.message}`; }
-  finally { button.disabled = false; }
+    activeSessionId = created.session_id;
+    exportMarkdown.disabled = false; exportJson.disabled = false;
+    setStatus(`Reasoning complete / session ${created.session_id.slice(0, 8)}`, 'complete');
+  } catch (error) { setStatus(`Reasoning unavailable: ${error.message}`, 'error'); }
+  finally { button.disabled = false; graphPanel.setAttribute('aria-busy', 'false'); }
 });

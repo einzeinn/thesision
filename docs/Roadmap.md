@@ -109,6 +109,10 @@ Users can observe AI reasoning instead of reading chat messages.
 
 Outputs
 
+Status
+
+Completed
+
 Goal
 
 Generate reusable outputs.
@@ -128,6 +132,10 @@ PDF export.
 # Phase 5
 
 Polish
+
+Status
+
+Implementation completed; demo video pending capture
 
 Goal
 
