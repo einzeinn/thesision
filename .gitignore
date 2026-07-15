@@ -29,3 +29,7 @@ htmlcov/
 # Editors
 .vscode/
 .idea/
+
+# Frontend tooling
+node_modules/
+src/frontend/app/dist/
