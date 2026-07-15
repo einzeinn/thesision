@@ -128,6 +128,11 @@ Nodes gradually connect together until they resemble a neural network. This is a
 
 Maximum debate length is 3 rounds. The backend/agent decides how many rounds occur (a round ends early once Judge marks the debate resolved); the frontend only renders however many rounds it's given.
 
+An imported completed session may create a continuation child session. A child
+retains the prior reasoning graph (except the superseded conclusion) and may
+append up to three additional debate rounds before producing a new conclusion.
+The original imported session remains immutable and exportable.
+
 ---
 
 # Graph Data Model

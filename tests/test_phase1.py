@@ -6,8 +6,8 @@ from src.backend.orchestrator.reasoning_orchestrator import ReasoningOrchestrato
 
 
 class FakeReasoningModel:
-    def generate_json(self, instruction, payload):
-        if instruction.startswith("Identify evidence"):
+    def generate_json(self, instruction, payload, *, tools=None):
+        if tools == [{"type": "web_search"}]:
             return {"evidence": [{"claim": "FastAPI is suitable for I/O workloads.", "source_title": "FastAPI docs", "url": "https://fastapi.tiangolo.com/", "relevance": "high", "quality": "high"}]}
         if instruction.startswith("Generate engineering hypotheses"):
             return {"hypotheses": [{"claim": "The migration depends on workload.", "assumptions": [], "unknowns": []}]}
@@ -19,6 +19,13 @@ class FakeReasoningModel:
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def clear_rate_limit_state():
+    from src.backend.app.main import request_times
+
+    request_times.clear()
 
 
 def test_create_session_and_fetch_it():
@@ -37,6 +44,11 @@ def test_create_session_and_fetch_it():
     session_payload = session_response.json()
     assert session_payload["question"] == "Should I migrate from FastAPI to Go?"
     assert session_payload["state"]["current_stage"] == "question"
+
+
+def test_health_endpoints_report_liveness_and_storage_readiness():
+    assert client.get("/health/live").json() == {"status": "live"}
+    assert client.get("/health/ready").json() == {"status": "ready"}
 
 
 def test_run_pipeline_advances_stage_and_persists_state():
@@ -117,6 +129,39 @@ def test_aimlapi_non_json_response_is_an_explicit_provider_error(monkeypatch):
         ConfiguredReasoningClient(api_key="test-key", provider="aimlapi").generate_json("Return JSON", {})
 
 
+def test_openai_web_search_only_keeps_cited_evidence_urls(monkeypatch):
+    from src.backend.services.openai_client import ConfiguredReasoningClient
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "output_text": '{"evidence":[{"claim":"Supported","source_title":"Invented","url":"https://example.com/relevant","relevance":"high","quality":"high"},{"claim":"Unsupported","source_title":"Invented","url":"https://example.com/unrelated","relevance":"high","quality":"high"}]}',
+                "output": [{"content": [{"annotations": [{"type": "url_citation", "url": "https://example.com/relevant", "title": "Verified source"}]}]}],
+            }
+
+    calls = []
+    monkeypatch.setattr("src.backend.services.openai_client.httpx.post", lambda *args, **kwargs: calls.append((args, kwargs)) or Response())
+    result = ConfiguredReasoningClient(api_key="test-key", provider="openai").generate_json(
+        "Retrieve evidence", {"question": "Test"}, tools=[{"type": "web_search"}]
+    )
+
+    assert calls[0][1]["json"]["tools"] == [{"type": "web_search"}]
+    assert result["evidence"][0]["source_title"] == "Verified source"
+    assert result["evidence"][1]["url"] is None
+
+
+def test_aimlapi_rejects_unverified_web_search_requests():
+    from src.backend.services.openai_client import ConfiguredReasoningClient, ReasoningProviderError
+
+    with pytest.raises(ReasoningProviderError, match="Evidence grounding requires OpenAI"):
+        ConfiguredReasoningClient(api_key="test-key", provider="aimlapi").generate_json(
+            "Retrieve evidence", {}, tools=[{"type": "web_search"}]
+        )
+
+
 def test_reasoning_workspace_serves_an_interactive_graph_shell():
     response = client.get("/")
 
@@ -152,6 +197,44 @@ def test_exports_match_the_persisted_reasoning_session():
     assert markdown_export.status_code == 200
     assert "# Thesision Reasoning Report" in markdown_export.text
     assert "Should we migrate?" in markdown_export.text
+
+
+def test_completed_json_export_can_be_imported_with_a_new_session_id():
+    app.state.orchestrator = ReasoningOrchestrator(FakeReasoningModel())
+    created = client.post("/api/sessions", json={"question": "Should we import this?"}).json()
+    client.post(f"/api/sessions/{created['session_id']}/run")
+    exported = client.get(f"/api/sessions/{created['session_id']}/exports/json").json()
+
+    imported = client.post("/api/sessions/import", json={"session": exported})
+
+    assert imported.status_code == 200
+    assert imported.json()["status"] == "imported"
+    assert imported.json()["session_id"] != created["session_id"]
+    assert imported.json()["session"]["state"]["status"] == "completed"
+
+
+def test_import_rejects_an_incomplete_or_invalid_session():
+    response = client.post("/api/sessions/import", json={"session": {"question": "Bad", "state": {"status": "running"}}})
+
+    assert response.status_code == 400
+
+
+def test_completed_session_can_continue_as_an_immutable_child():
+    app.state.orchestrator = ReasoningOrchestrator(FakeReasoningModel())
+    created = client.post("/api/sessions", json={"question": "Should we continue this?"}).json()
+    client.post(f"/api/sessions/{created['session_id']}/run")
+    parent = client.get(f"/api/sessions/{created['session_id']}").json()
+
+    continuation = client.post(f"/api/sessions/{created['session_id']}/continue")
+
+    assert continuation.status_code == 202
+    child_id = continuation.json()["session_id"]
+    child = client.get(f"/api/sessions/{child_id}").json()
+    assert child_id != created["session_id"]
+    assert child["state"]["status"] == "completed"
+    assert child["state"]["iteration"] > parent["state"]["iteration"]
+    assert all(node["type"] != "conclusion" for node in continuation.json()["session"]["state"]["nodes"])
+    assert client.get(f"/api/sessions/{created['session_id']}").json()["state"] == parent["state"]
 
 
 def test_exports_reject_missing_or_incomplete_sessions():

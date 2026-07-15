@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: thesision
+    runtime: docker
+    plan: free
+    healthCheckPath: /health/live
+    envVars:
+      - key: AI_PROVIDER
+        value: aimlapi
+      - key: AIMLAPI_MODEL
+        value: openai/gpt-5.6-luna
+      - key: AIMLAPI_API_KEY
+        sync: false
+      - key: THESISION_DATA_DIR
+        value: /tmp/thesision
+      - key: PROVIDER_TIMEOUT_SECONDS
+        value: "60"
+      - key: REASONING_TIMEOUT_SECONDS
+        value: "180"
+      - key: RATE_LIMIT_REQUESTS
+        value: "10"
+      - key: RATE_LIMIT_WINDOW_SECONDS
+        value: "60"
+      - key: TRUST_PROXY_HEADERS
+        value: "true"

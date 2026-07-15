@@ -1,7 +1,11 @@
+import logging
+import os
+import time
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -10,7 +14,7 @@ from pydantic import BaseModel, Field
 from src.backend.orchestrator.reasoning_orchestrator import ReasoningOrchestrator
 from src.backend.services.openai_client import ConfiguredReasoningClient
 from src.backend.services.output_generator import build_json_export, build_markdown_report
-from src.backend.state.session_store import create_session, get_session
+from src.backend.state.session_store import create_continuation_session, create_session, get_session, import_completed_session, storage_ready
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 FRONTEND_DIR = ROOT_DIR / "src" / "frontend" / "app"
@@ -18,6 +22,9 @@ INDEX_HTML = FRONTEND_DIR / "index.html"
 
 app = FastAPI(title="Thesision", version="0.1.0")
 app.state.orchestrator = ReasoningOrchestrator(ConfiguredReasoningClient())
+logger = logging.getLogger("thesision")
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
+request_times: dict[str, deque[float]] = defaultdict(deque)
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,9 +42,48 @@ class SessionCreateRequest(BaseModel):
     context: Optional[str] = Field(default=None, max_length=8_000)
 
 
+class SessionImportRequest(BaseModel):
+    session: dict
+
+
+@app.middleware("http")
+async def operational_guard(request: Request, call_next):
+    started_at = time.monotonic()
+    if request.method == "POST" and (request.url.path in {"/api/sessions", "/api/sessions/import"} or request.url.path.endswith(("/start", "/continue"))):
+        trust_proxy = os.getenv("TRUST_PROXY_HEADERS", "false").lower() == "true"
+        forwarded_for = request.headers.get("x-forwarded-for") if trust_proxy else None
+        client_ip = forwarded_for.split(",", 1)[0].strip() if forwarded_for else (request.client.host if request.client else "unknown")
+        window = float(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+        limit = int(os.getenv("RATE_LIMIT_REQUESTS", "10"))
+        now = time.monotonic()
+        recent = request_times[client_ip]
+        while recent and recent[0] <= now - window:
+            recent.popleft()
+        if len(recent) >= limit:
+            return PlainTextResponse("Rate limit exceeded. Try again shortly.", status_code=429)
+        recent.append(now)
+    response = await call_next(request)
+    path_parts = request.url.path.split("/")
+    session_id = path_parts[3] if len(path_parts) > 3 and path_parts[1:3] == ["api", "sessions"] else None
+    logger.info('{"event":"http_request","method":"%s","path":"%s","session_id":%s,"status":%s,"duration_ms":%s}', request.method, request.url.path, f'"{session_id}"' if session_id else "null", response.status_code, round((time.monotonic() - started_at) * 1000))
+    return response
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/health/live")
+def liveness() -> dict:
+    return {"status": "live"}
+
+
+@app.get("/health/ready")
+def readiness() -> dict:
+    if not storage_ready():
+        raise HTTPException(status_code=503, detail="Session storage is unavailable")
+    return {"status": "ready"}
 
 
 @app.get("/")
@@ -52,6 +98,15 @@ def create_session_endpoint(payload: SessionCreateRequest) -> dict:
 
     session = create_session(payload.question, payload.context)
     return {"status": "created", "session_id": session["session_id"], "session": session}
+
+
+@app.post("/api/sessions/import")
+def import_session_endpoint(payload: SessionImportRequest) -> dict:
+    try:
+        session = import_completed_session(payload.session)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"status": "imported", "session_id": session["session_id"], "session": session}
 
 
 @app.get("/api/sessions/{session_id}")
@@ -88,6 +143,17 @@ def start_session(session_id: str, background_tasks: BackgroundTasks) -> dict:
         raise HTTPException(status_code=409, detail="Reasoning is already running")
     background_tasks.add_task(_run_session_in_background, session_id)
     return {"status": "started", "session_id": session_id}
+
+
+@app.post("/api/sessions/{session_id}/continue", status_code=202)
+def continue_session(session_id: str, background_tasks: BackgroundTasks) -> dict:
+    parent = _require_completed_session(session_id)
+    try:
+        child = create_continuation_session(parent)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    background_tasks.add_task(_run_session_in_background, child["session_id"])
+    return {"status": "continuing", "session_id": child["session_id"], "session": child}
 
 
 def _require_session(session_id: str) -> dict:

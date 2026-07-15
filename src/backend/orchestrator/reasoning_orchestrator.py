@@ -1,3 +1,6 @@
+import os
+import time
+import logging
 from typing import Any
 
 from src.backend.agents.reasoning_agents import (
@@ -9,6 +12,8 @@ from src.backend.agents.reasoning_agents import (
 )
 from src.backend.services.openai_client import LanguageModel, ReasoningProviderError
 from src.backend.state.session_store import update_session_state
+
+logger = logging.getLogger("thesision")
 
 
 class ReasoningOrchestrator:
@@ -24,13 +29,18 @@ class ReasoningOrchestrator:
         self.conclusion = ConclusionGenerator()
 
     def run(self, session: dict[str, Any]) -> dict[str, Any]:
+        deadline = time.monotonic() + float(os.getenv("REASONING_TIMEOUT_SECONDS", "180"))
         state = session["state"]
+        provider = getattr(self.model, "provider", "custom")
         state["status"] = "running"
         state["errors"] = []
         self._persist(session["session_id"], state)
         context = state.get("metadata", {}).get("context", "")
         try:
-            for iteration in range(1, self.maximum_iterations + 1):
+            first_iteration = int(state.get("iteration", 0)) + 1
+            for iteration in range(first_iteration, first_iteration + self.maximum_iterations):
+                if time.monotonic() >= deadline:
+                    raise ReasoningProviderError("Reasoning session timed out before completion.")
                 state["iteration"] = iteration
                 self._run_stage(session["session_id"], state, "hypothesis", self.hypotheses.run, session["question"], context)
                 self._run_stage(session["session_id"], state, "evidence", self.evidence.run, session["question"], state["hypothesis"])
@@ -45,21 +55,26 @@ class ReasoningOrchestrator:
             self._run_stage(session["session_id"], state, "conclusion", self.conclusion.run, self._reasoning_snapshot(state))
             state["summary"] = state["conclusion"]
             state["status"] = "completed"
+            logger.info('{"event":"reasoning_completed","session_id":"%s","provider":"%s","outcome":"completed"}', session["session_id"], provider)
         except ReasoningProviderError as error:
             state["status"] = "failed"
             state["errors"].append(str(error))
+            logger.info('{"event":"reasoning_completed","session_id":"%s","provider":"%s","outcome":"provider_error"}', session["session_id"], provider)
         except Exception as error:
             state["status"] = "failed"
             state["errors"].append(f"Reasoning pipeline failed during {state['current_stage']}: {error}")
+            logger.exception('{"event":"reasoning_completed","session_id":"%s","provider":"%s","outcome":"unexpected_error"}', session["session_id"], provider)
         return self._persist(session["session_id"], state) or session
 
     def _run_stage(self, session_id: str, state: dict[str, Any], stage: str, action: Any, *args: Any) -> None:
+        started_at = time.monotonic()
         state["current_stage"] = stage
         state.setdefault("stages", {})[stage] = {"status": "running"}
         self._persist(session_id, state)
         result = action(self.model, *args)
         self._complete_stage(state, stage, result)
         self._persist(session_id, state)
+        logger.info('{"event":"reasoning_stage","session_id":"%s","stage":"%s","provider":"%s","outcome":"completed","duration_ms":%s}', session_id, stage, getattr(self.model, "provider", "custom"), round((time.monotonic() - started_at) * 1000))
 
     @staticmethod
     def _persist(session_id: str, state: dict[str, Any]) -> dict[str, Any] | None:

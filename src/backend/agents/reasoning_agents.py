@@ -1,6 +1,6 @@
 from typing import Any
 
-from src.backend.services.openai_client import LanguageModel
+from src.backend.services.openai_client import LanguageModel, ReasoningProviderError
 
 
 class HypothesisGenerator:
@@ -13,10 +13,22 @@ class HypothesisGenerator:
 
 class EvidenceRetriever:
     def run(self, model: LanguageModel, question: str, hypotheses: dict[str, Any]) -> dict[str, Any]:
-        return model.generate_json(
-            "Identify evidence relevant to the engineering hypotheses. Return JSON with evidence (list of {claim, source_title, url, relevance, quality}). Only supply a URL when it is known; mark uncertain items clearly. Do not invent a source.",
-            {"question": question, "hypotheses": hypotheses},
-        )
+        try:
+            return model.generate_json(
+                "Use the web search tool to retrieve sources for the engineering hypotheses; do not rely on recalled citations. Return JSON with evidence (list of {claim, source_title, url, relevance, quality}). Include a URL only when it was returned by the web search tool and directly supports the attached claim. If no relevant result exists, return an item with url null, source_title 'No verified web source found', and relevance and quality 'unverified'. Never invent a source, title, or URL.",
+                {"question": question, "hypotheses": hypotheses},
+                tools=[{"type": "web_search"}],
+            )
+        except ReasoningProviderError as error:
+            if "hosted web search" not in str(error):
+                raise
+            return {"evidence": [{
+                "claim": "No verified web evidence is available because the configured provider does not support grounded search.",
+                "source_title": "Evidence grounding unavailable for AI/ML API",
+                "url": None,
+                "relevance": "unverified",
+                "quality": "unverified",
+            }]}
 
 
 class PerspectiveAnalyzer:

@@ -14,7 +14,7 @@ class ReasoningProviderError(RuntimeError):
 
 
 class LanguageModel(Protocol):
-    def generate_json(self, instruction: str, payload: dict[str, Any]) -> dict[str, Any]: ...
+    def generate_json(self, instruction: str, payload: dict[str, Any], *, tools: list[dict[str, Any]] | None = None) -> dict[str, Any]: ...
 
 
 class ConfiguredReasoningClient:
@@ -26,39 +26,80 @@ class ConfiguredReasoningClient:
             raise ReasoningProviderError("AI_PROVIDER must be either 'openai' or 'aimlapi'.")
         key_name = "AIMLAPI_API_KEY" if self.provider == "aimlapi" else "OPENAI_API_KEY"
         model_name = "AIMLAPI_MODEL" if self.provider == "aimlapi" else "OPENAI_MODEL"
-        default_model = "gpt-4o" if self.provider == "aimlapi" else "gpt-4.1-mini"
+        default_model = "openai/gpt-5.6-luna" if self.provider == "aimlapi" else "gpt-4.1-mini"
         self.api_key = api_key if api_key is not None else os.getenv(key_name)
         self.model = model or os.getenv(model_name, default_model)
 
-    def generate_json(self, instruction: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def generate_json(self, instruction: str, payload: dict[str, Any], *, tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         if not self.api_key:
             key_name = "AIMLAPI_API_KEY" if self.provider == "aimlapi" else "OPENAI_API_KEY"
             raise ReasoningProviderError(f"{key_name} is not configured.")
 
         if self.provider == "aimlapi":
+            if tools:
+                raise ReasoningProviderError("Evidence grounding requires OpenAI hosted web search; AI/ML API search-tool compatibility is not verified.")
             return self._generate_aimlapi_json(instruction, payload)
-        return self._generate_openai_json(instruction, payload)
+        return self._generate_openai_json(instruction, payload, tools=tools)
 
-    def _generate_openai_json(self, instruction: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _generate_openai_json(self, instruction: str, payload: dict[str, Any], *, tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         body = {
             "model": self.model,
             "instructions": instruction,
             "input": json.dumps(payload),
             "text": {"format": {"type": "json_object"}},
         }
+        if tools:
+            body["tools"] = tools
         try:
             response = httpx.post(
                 "https://api.openai.com/v1/responses",
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json=body,
-                timeout=60.0,
+                timeout=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "60")),
             )
             response.raise_for_status()
             response_body = self._read_response_json(response, "OpenAI")
         except httpx.HTTPError as error:
             raise ReasoningProviderError(f"OpenAI request failed: {error}") from error
 
-        return self._parse_json_output(response_body.get("output_text"), "OpenAI")
+        result = self._parse_json_output(response_body.get("output_text"), "OpenAI")
+        return self._ground_evidence(result, response_body) if tools else result
+
+    @staticmethod
+    def _ground_evidence(result: dict[str, Any], response_body: dict[str, Any]) -> dict[str, Any]:
+        citations: dict[str, str] = {}
+        for output in response_body.get("output", []):
+            if not isinstance(output, dict):
+                continue
+            for content in output.get("content", []):
+                if not isinstance(content, dict):
+                    continue
+                for annotation in content.get("annotations", []):
+                    if not isinstance(annotation, dict) or annotation.get("type") != "url_citation":
+                        continue
+                    url = annotation.get("url")
+                    if isinstance(url, str) and url:
+                        citations[url.rstrip("/")] = str(annotation.get("title") or url)
+
+        grounded: list[dict[str, Any]] = []
+        for item in result.get("evidence", []):
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            if isinstance(url, str) and url.rstrip("/") in citations:
+                item["url"] = url
+                item["source_title"] = citations[url.rstrip("/")]
+                grounded.append(item)
+            else:
+                grounded.append({
+                    "claim": item.get("claim", "No verified source was found for this claim."),
+                    "source_title": "No verified web source found",
+                    "url": None,
+                    "relevance": "unverified",
+                    "quality": "unverified",
+                })
+        result["evidence"] = grounded
+        return result
 
     def _generate_aimlapi_json(self, instruction: str, payload: dict[str, Any]) -> dict[str, Any]:
         body = {
@@ -75,7 +116,7 @@ class ConfiguredReasoningClient:
                 "https://api.aimlapi.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json=body,
-                timeout=60.0,
+                timeout=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "60")),
             )
             response.raise_for_status()
             response_body = self._read_response_json(response, "AI/ML API")
