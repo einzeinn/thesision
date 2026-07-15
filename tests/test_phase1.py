@@ -165,6 +165,27 @@ def test_aimlapi_rejects_unverified_web_search_requests():
         )
 
 
+def test_aimlapi_evidence_fallback_returns_useful_unverified_considerations():
+    from src.backend.agents.reasoning_agents import EvidenceRetriever
+    from src.backend.services.openai_client import ReasoningProviderError
+
+    class NoSearchModel:
+        def generate_json(self, instruction, payload, *, tools=None):
+            if tools:
+                raise ReasoningProviderError("Evidence grounding requires OpenAI hosted web search")
+            return {"evidence": [{"claim": "Measure p95 latency before changing the runtime.", "url": "https://fabricated.example"}]}
+
+    result = EvidenceRetriever().run(NoSearchModel(), "Should we migrate?", {"hypotheses": []})
+
+    assert result["evidence"] == [{
+        "claim": "Measure p95 latency before changing the runtime.",
+        "source_title": "Model-derived consideration (not web-verified)",
+        "url": None,
+        "relevance": "model-derived",
+        "quality": "unverified",
+    }]
+
+
 def test_reasoning_workspace_serves_an_interactive_graph_shell():
     response = client.get("/")
 

@@ -22,7 +22,24 @@ class EvidenceRetriever:
         except ReasoningProviderError as error:
             if "hosted web search" not in str(error):
                 raise
-            return {"evidence": [{
+            considerations = model.generate_json(
+                "The configured provider cannot browse the web. Generate 3 to 5 concrete engineering considerations that follow from the question and hypotheses, covering measurable risks, constraints, or validation steps. Return JSON with evidence (list of {claim}). Do not cite, name, or imply any external source. These are unverified model-derived considerations, not web evidence.",
+                {"question": question, "hypotheses": hypotheses},
+            )
+            items = considerations.get("evidence", []) if isinstance(considerations, dict) else []
+            normalized = []
+            for item in items:
+                if isinstance(item, dict) and isinstance(item.get("claim"), str) and item["claim"].strip():
+                    normalized.append(
+                        {
+                            "claim": item["claim"].strip(),
+                            "source_title": "Model-derived consideration (not web-verified)",
+                            "url": None,
+                            "relevance": "model-derived",
+                            "quality": "unverified",
+                        }
+                    )
+            return {"evidence": normalized or [{
                 "claim": "No verified web evidence is available because the configured provider does not support grounded search.",
                 "source_title": "Evidence grounding unavailable for AI/ML API",
                 "url": None,

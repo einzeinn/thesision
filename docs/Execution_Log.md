@@ -98,6 +98,11 @@
 - Routed Markdown export through the Orchestrator so the configured model can compress only the canonical JSON export into a concise report.
 - Added a deterministic canonical-JSON fallback so Markdown export remains available if the provider request fails.
 
+### 2026-07-15 - AI/ML API Evidence Fallback
+
+- Confirmed that AI/ML API's GPT-5.6 variants document tool calling but not hosted web search.
+- Configured the no-search evidence path to return explicitly unverified, model-derived engineering considerations rather than a single empty placeholder or fabricated citations.
+
 ## Log Format
 
 Future executions should add a new dated section with:
