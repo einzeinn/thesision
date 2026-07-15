@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from src.backend.orchestrator.reasoning_orchestrator import ReasoningOrchestrator
 from src.backend.services.openai_client import ConfiguredReasoningClient
-from src.backend.services.output_generator import build_json_export, build_markdown_report
+from src.backend.services.output_generator import build_json_export
 from src.backend.state.session_store import create_continuation_session, create_session, get_session, import_completed_session, storage_ready
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -172,8 +172,7 @@ def _require_completed_session(session_id: str) -> dict:
 
 @app.get("/api/sessions/{session_id}/exports/markdown")
 def export_markdown(session_id: str) -> PlainTextResponse:
-    exported_session_json = build_json_export(_require_completed_session(session_id))
-    report = build_markdown_report(exported_session_json)
+    report = app.state.orchestrator.build_markdown_report(_require_completed_session(session_id))
     return PlainTextResponse(
         report,
         media_type="text/markdown",

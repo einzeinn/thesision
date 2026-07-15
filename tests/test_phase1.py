@@ -7,6 +7,9 @@ from src.backend.orchestrator.reasoning_orchestrator import ReasoningOrchestrato
 
 class FakeReasoningModel:
     def generate_json(self, instruction, payload, *, tools=None):
+        if instruction.startswith("Create a concise Markdown"):
+            question = payload["canonical_session"]["question"]
+            return {"markdown": f"# Thesision Reasoning Report\n\n## Question\n{question}\n\n## Conclusion\nMeasure before migrating."}
         if tools == [{"type": "web_search"}]:
             return {"evidence": [{"claim": "FastAPI is suitable for I/O workloads.", "source_title": "FastAPI docs", "url": "https://fastapi.tiangolo.com/", "relevance": "high", "quality": "high"}]}
         if instruction.startswith("Generate engineering hypotheses"):
@@ -197,7 +200,8 @@ def test_exports_match_the_persisted_reasoning_session():
     assert markdown_export.status_code == 200
     assert "# Thesision Reasoning Report" in markdown_export.text
     assert "Should we migrate?" in markdown_export.text
-    assert f"```json\n{json_export.text}\n```" in markdown_export.text
+    assert "## Conclusion" in markdown_export.text
+    assert "```json" not in markdown_export.text
 
 
 def test_completed_json_export_can_be_imported_with_a_new_session_id():
@@ -265,13 +269,19 @@ def test_markdown_export_tolerates_incomplete_agent_output():
     session["state"]["conclusion"] = {"conclusion": None, "caveats": [None, "Check the measurements."]}
     imported = client.post("/api/sessions/import", json={"session": session}).json()
 
+    class MarkdownFailingModel(FakeReasoningModel):
+        def generate_json(self, instruction, payload, *, tools=None):
+            if instruction.startswith("Create a concise Markdown"):
+                from src.backend.services.openai_client import ReasoningProviderError
+                raise ReasoningProviderError("Temporary export provider failure")
+            return super().generate_json(instruction, payload, tools=tools)
+
+    app.state.orchestrator = ReasoningOrchestrator(MarkdownFailingModel())
     markdown_export = client.get(f"/api/sessions/{imported['session_id']}/exports/markdown")
-    json_export = client.get(f"/api/sessions/{imported['session_id']}/exports/json")
 
     assert markdown_export.status_code == 200
-    assert '"conclusion": null' in markdown_export.text
+    assert "No conclusion was generated." in markdown_export.text
     assert "Check the measurements." in markdown_export.text
-    assert f"```json\n{json_export.text}\n```" in markdown_export.text
 
 
 def test_exports_reject_missing_or_incomplete_sessions():

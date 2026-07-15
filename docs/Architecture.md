@@ -258,6 +258,12 @@ Produces
 - Markdown
 - JSON
 
+Markdown reports are generated through the Orchestrator from the canonical
+JSON export only. The report is a concise human-readable view; JSON remains
+the complete portable and auditable session record. A deterministic renderer
+from that same JSON provides a fallback when the configured provider is
+unavailable.
+
 Future
 
 PDF.

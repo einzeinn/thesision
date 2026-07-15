@@ -53,3 +53,11 @@ class ConclusionGenerator:
             "Write a transparent engineering conclusion from the judged reasoning. Return JSON with conclusion, rationale, caveats, and next_steps. State that the human makes the final decision.",
             state,
         )
+
+
+class MarkdownReportComposer:
+    def run(self, model: LanguageModel, exported_session: dict[str, Any]) -> dict[str, Any]:
+        return model.generate_json(
+            "Create a concise Markdown engineering report from canonical session JSON. Return JSON with one string field: markdown. Include only Question, Conclusion, Confidence, Key Evidence, Trade-offs, Caveats, and Next Steps when present. Do not invent, infer, or change any claim, source, URL, recommendation, or number. Do not include the raw JSON, a code fence, or commentary about this instruction.",
+            {"canonical_session": exported_session},
+        )

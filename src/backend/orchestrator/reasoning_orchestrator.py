@@ -1,3 +1,4 @@
+import json
 import os
 import time
 import logging
@@ -8,9 +9,11 @@ from src.backend.agents.reasoning_agents import (
     EvidenceRetriever,
     HypothesisGenerator,
     Judge,
+    MarkdownReportComposer,
     PerspectiveAnalyzer,
 )
 from src.backend.services.openai_client import LanguageModel, ReasoningProviderError
+from src.backend.services.output_generator import build_json_export, build_markdown_report
 from src.backend.state.session_store import update_session_state
 
 logger = logging.getLogger("thesision")
@@ -27,6 +30,7 @@ class ReasoningOrchestrator:
         self.perspectives = PerspectiveAnalyzer()
         self.judge = Judge()
         self.conclusion = ConclusionGenerator()
+        self.markdown_reporter = MarkdownReportComposer()
 
     def run(self, session: dict[str, Any]) -> dict[str, Any]:
         deadline = time.monotonic() + float(os.getenv("REASONING_TIMEOUT_SECONDS", "180"))
@@ -65,6 +69,17 @@ class ReasoningOrchestrator:
             state["errors"].append(f"Reasoning pipeline failed during {state['current_stage']}: {error}")
             logger.exception('{"event":"reasoning_completed","session_id":"%s","provider":"%s","outcome":"unexpected_error"}', session["session_id"], provider)
         return self._persist(session["session_id"], state) or session
+
+    def build_markdown_report(self, session: dict[str, Any]) -> str:
+        exported_session_json = build_json_export(session)
+        try:
+            exported_session = json.loads(exported_session_json)
+            result = self.markdown_reporter.run(self.model, exported_session)
+            markdown = result.get("markdown") if isinstance(result, dict) else None
+            return build_markdown_report(exported_session_json, markdown)
+        except (ReasoningProviderError, ValueError, TypeError) as error:
+            logger.info('{"event":"markdown_export","session_id":"%s","outcome":"deterministic_fallback","reason":"%s"}', session["session_id"], type(error).__name__)
+            return build_markdown_report(exported_session_json)
 
     def _run_stage(self, session_id: str, state: dict[str, Any], stage: str, action: Any, *args: Any) -> None:
         started_at = time.monotonic()

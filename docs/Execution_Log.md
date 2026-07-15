@@ -92,6 +92,12 @@
 - Changed Markdown export to render that exact JSON payload in a Markdown JSON block, without reconstructing, summarizing, or truncating reasoning data.
 - Added regression checks proving the Markdown payload contains the complete JSON export, including every persisted node.
 
+### 2026-07-15 - RFC-008 Concise Markdown Revision
+
+- Kept JSON export as the exact portable session record.
+- Routed Markdown export through the Orchestrator so the configured model can compress only the canonical JSON export into a concise report.
+- Added a deterministic canonical-JSON fallback so Markdown export remains available if the provider request fails.
+
 ## Log Format
 
 Future executions should add a new dated section with:
