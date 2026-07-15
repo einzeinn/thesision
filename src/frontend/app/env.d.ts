@@ -16,4 +16,4 @@ interface AnimeFunction {
   stagger(interval: number): (element: Element, index: number) => number;
 }
 
-interface Window { anime?: AnimeFunction; }
+interface Window { anime?: AnimeFunction; d3?: typeof import('d3'); }
