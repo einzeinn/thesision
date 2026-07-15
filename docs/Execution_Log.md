@@ -86,6 +86,12 @@
 - Verification: `10 passed` via `./.venv/Scripts/python.exe -m pytest -q` (two environment warnings only).
 - Current status: MVP phases 0–5 and the graph-legibility refinement are complete; demo video capture remains pending.
 
+### 2026-07-15 - RFC-008 Canonical Export Pipeline
+
+- Made JSON the canonical export payload.
+- Changed Markdown export to render that exact JSON payload in a Markdown JSON block, without reconstructing, summarizing, or truncating reasoning data.
+- Added regression checks proving the Markdown payload contains the complete JSON export, including every persisted node.
+
 ## Log Format
 
 Future executions should add a new dated section with:

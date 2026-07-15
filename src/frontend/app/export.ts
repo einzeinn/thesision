@@ -1,6 +1,26 @@
 export async function downloadSessionExport(sessionId: string | null, format: 'markdown' | 'json', setStatus: (message: string, state?: string) => void) {
   if (!sessionId) return;
-  const response = await fetch(`/api/sessions/${sessionId}/exports/${format}`);
-  if (!response.ok) { setStatus('Export unavailable for this session.', 'error'); return; }
-  const link = document.createElement('a'); link.href = URL.createObjectURL(await response.blob()); link.download = `thesision-${sessionId}.${format === 'markdown' ? 'md' : 'json'}`; link.click(); URL.revokeObjectURL(link.href);
+  try {
+    const response = await fetch(`/api/sessions/${sessionId}/exports/${format}`);
+    if (!response.ok) {
+      const detail = await response.text();
+      setStatus(`Export unavailable: ${detail || response.statusText}`, 'error');
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = `thesision-${sessionId}.${format === 'markdown' ? 'md' : 'json'}`;
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+
+    // Some browsers only begin consuming the Blob URL after the click task ends.
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+    setStatus(`${format === 'markdown' ? 'Markdown' : 'JSON'} export downloaded.`, 'complete');
+  } catch (error) {
+    setStatus(`Export unavailable: ${error instanceof Error ? error.message : String(error)}`, 'error');
+  }
 }

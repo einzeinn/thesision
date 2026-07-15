@@ -172,7 +172,8 @@ def _require_completed_session(session_id: str) -> dict:
 
 @app.get("/api/sessions/{session_id}/exports/markdown")
 def export_markdown(session_id: str) -> PlainTextResponse:
-    report = build_markdown_report(_require_completed_session(session_id))
+    exported_session_json = build_json_export(_require_completed_session(session_id))
+    report = build_markdown_report(exported_session_json)
     return PlainTextResponse(
         report,
         media_type="text/markdown",

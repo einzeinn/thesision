@@ -161,6 +161,12 @@ Connections should grow instead of appearing instantly:
 - Nodes fade and scale in with a staggered delay (small, incremental delay per node — not simultaneous). The scale animation must target an inner SVG group, never the outer group whose transform stores the node's settled position.
 - Links fade in independently, staggered slightly ahead of or alongside the nodes they connect.
 - On mount, the simulation should already be settled (run enough ticks server-side or synchronously before first paint) so nodes don't visibly jitter into place — only the fade/stagger reveal should be visible, not the physics settling.
+- The Question node is a fixed visual anchor at the center of the workspace.
+  Incremental updates retain settled positions for existing nodes; only newly
+  available nodes are laid out around the retained graph.
+- When a continuation adds rounds beyond the initial debate, radial spacing
+  adapts to keep the graph in view. Users can drag the background to pan and
+  use the mouse wheel to zoom without moving graph nodes.
 
 ---
 

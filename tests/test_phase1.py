@@ -197,6 +197,7 @@ def test_exports_match_the_persisted_reasoning_session():
     assert markdown_export.status_code == 200
     assert "# Thesision Reasoning Report" in markdown_export.text
     assert "Should we migrate?" in markdown_export.text
+    assert f"```json\n{json_export.text}\n```" in markdown_export.text
 
 
 def test_completed_json_export_can_be_imported_with_a_new_session_id():
@@ -235,6 +236,42 @@ def test_completed_session_can_continue_as_an_immutable_child():
     assert child["state"]["iteration"] > parent["state"]["iteration"]
     assert all(node["type"] != "conclusion" for node in continuation.json()["session"]["state"]["nodes"])
     assert client.get(f"/api/sessions/{created['session_id']}").json()["state"] == parent["state"]
+
+
+def test_imported_session_continuation_can_export_markdown():
+    app.state.orchestrator = ReasoningOrchestrator(FakeReasoningModel())
+    created = client.post("/api/sessions", json={"question": "Should we continue an imported session?"}).json()
+    client.post(f"/api/sessions/{created['session_id']}/run")
+    exported = client.get(f"/api/sessions/{created['session_id']}/exports/json").json()
+    imported = client.post("/api/sessions/import", json={"session": exported}).json()
+
+    continuation = client.post(f"/api/sessions/{imported['session_id']}/continue")
+
+    assert continuation.status_code == 202
+    markdown_export = client.get(f"/api/sessions/{continuation.json()['session_id']}/exports/markdown")
+    assert markdown_export.status_code == 200
+    assert "# Thesision Reasoning Report" in markdown_export.text
+    assert "Should we continue an imported session?" in markdown_export.text
+
+
+def test_markdown_export_tolerates_incomplete_agent_output():
+    app.state.orchestrator = ReasoningOrchestrator(FakeReasoningModel())
+    created = client.post("/api/sessions", json={"question": "Should partial output export?"}).json()
+    session_id = created["session_id"]
+    client.post(f"/api/sessions/{session_id}/run")
+    session = client.get(f"/api/sessions/{session_id}").json()
+    session["state"]["evidence"] = {"evidence": [None, {"claim": None, "source_title": None, "url": 42}]}
+    session["state"]["perspectives"] = {"perspectives": [{"name": None, "analysis": None, "tradeoffs": None}]}
+    session["state"]["conclusion"] = {"conclusion": None, "caveats": [None, "Check the measurements."]}
+    imported = client.post("/api/sessions/import", json={"session": session}).json()
+
+    markdown_export = client.get(f"/api/sessions/{imported['session_id']}/exports/markdown")
+    json_export = client.get(f"/api/sessions/{imported['session_id']}/exports/json")
+
+    assert markdown_export.status_code == 200
+    assert '"conclusion": null' in markdown_export.text
+    assert "Check the measurements." in markdown_export.text
+    assert f"```json\n{json_export.text}\n```" in markdown_export.text
 
 
 def test_exports_reject_missing_or_incomplete_sessions():
