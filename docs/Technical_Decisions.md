@@ -283,6 +283,11 @@ The reasoning provider is selected through environment variables so a deployed o
 
 The application supports one active provider per runtime. It does not introduce simultaneous multi-provider reasoning, which remains outside the MVP.
 
+For AI/ML API deployments, `AIMLAPI_MODEL` controls the general reasoning
+model and `AIMLAPI_EVIDENCE_MODEL` controls the search-capable Evidence-stage
+model. Both use the same provider endpoint and API key; this is stage-specific
+model selection, not multi-provider reasoning.
+
 ---
 
 # Deferred Decisions

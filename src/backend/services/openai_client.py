@@ -29,6 +29,7 @@ class ConfiguredReasoningClient:
         default_model = "openai/gpt-5.6-luna" if self.provider == "aimlapi" else "gpt-4.1-mini"
         self.api_key = api_key if api_key is not None else os.getenv(key_name)
         self.model = model or os.getenv(model_name, default_model)
+        self.evidence_model = os.getenv("AIMLAPI_EVIDENCE_MODEL", "perplexity/sonar")
 
     def generate_json(self, instruction: str, payload: dict[str, Any], *, tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         if not self.api_key:
@@ -37,7 +38,7 @@ class ConfiguredReasoningClient:
 
         if self.provider == "aimlapi":
             if tools:
-                raise ReasoningProviderError("Evidence grounding requires OpenAI hosted web search; AI/ML API search-tool compatibility is not verified.")
+                return self._generate_aimlapi_grounded_evidence(instruction, payload)
             return self._generate_aimlapi_json(instruction, payload)
         return self._generate_openai_json(instruction, payload, tools=tools)
 
@@ -126,6 +127,64 @@ class ConfiguredReasoningClient:
         choices = response_body.get("choices", [])
         output_text = choices[0].get("message", {}).get("content") if choices else None
         return self._parse_json_output(output_text, "AI/ML API")
+
+    def _generate_aimlapi_grounded_evidence(self, instruction: str, payload: dict[str, Any]) -> dict[str, Any]:
+        body = {
+            "model": self.evidence_model,
+            "messages": [
+                {"role": "system", "content": instruction},
+                {"role": "user", "content": json.dumps(payload)},
+            ],
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+            "web_search_options": {"search_mode": "web"},
+        }
+        try:
+            response = httpx.post(
+                "https://api.aimlapi.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json=body,
+                timeout=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "60")),
+            )
+            response.raise_for_status()
+            response_body = self._read_response_json(response, "AI/ML API evidence model")
+        except httpx.HTTPError as error:
+            raise ReasoningProviderError(f"AI/ML API evidence request failed: {error}") from error
+
+        choices = response_body.get("choices", [])
+        output_text = choices[0].get("message", {}).get("content") if choices else None
+        return self._ground_aimlapi_evidence(self._parse_json_output(output_text, "AI/ML API evidence model"), response_body)
+
+    @staticmethod
+    def _ground_aimlapi_evidence(result: dict[str, Any], response_body: dict[str, Any]) -> dict[str, Any]:
+        sources: dict[str, str] = {}
+        for item in response_body.get("search_results", []):
+            if isinstance(item, dict) and isinstance(item.get("url"), str):
+                url = item["url"].rstrip("/")
+                sources[url] = str(item.get("title") or item["url"])
+        for url in response_body.get("citations", []):
+            if isinstance(url, str) and url:
+                sources.setdefault(url.rstrip("/"), url)
+
+        grounded: list[dict[str, Any]] = []
+        for item in result.get("evidence", []):
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            if isinstance(url, str) and url.rstrip("/") in sources:
+                item["url"] = url
+                item["source_title"] = sources[url.rstrip("/")]
+                grounded.append(item)
+            else:
+                grounded.append({
+                    "claim": item.get("claim", "No verified source was found for this claim."),
+                    "source_title": "No verified web source found",
+                    "url": None,
+                    "relevance": "unverified",
+                    "quality": "unverified",
+                })
+        result["evidence"] = grounded
+        return result
 
     @staticmethod
     def _read_response_json(response: httpx.Response, provider_name: str) -> dict[str, Any]:

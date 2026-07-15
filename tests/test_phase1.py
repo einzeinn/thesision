@@ -156,13 +156,29 @@ def test_openai_web_search_only_keeps_cited_evidence_urls(monkeypatch):
     assert result["evidence"][1]["url"] is None
 
 
-def test_aimlapi_rejects_unverified_web_search_requests():
-    from src.backend.services.openai_client import ConfiguredReasoningClient, ReasoningProviderError
+def test_aimlapi_grounded_evidence_uses_the_configured_search_model(monkeypatch):
+    from src.backend.services.openai_client import ConfiguredReasoningClient
 
-    with pytest.raises(ReasoningProviderError, match="Evidence grounding requires OpenAI"):
-        ConfiguredReasoningClient(api_key="test-key", provider="aimlapi").generate_json(
-            "Retrieve evidence", {}, tools=[{"type": "web_search"}]
-        )
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{"message": {"content": '{"evidence":[{"claim":"Supported claim","source_title":"Invented","url":"https://example.com/source","quality":"high"}]}'}}],
+                "citations": ["https://example.com/source"],
+                "search_results": [{"title": "Verified source", "url": "https://example.com/source"}],
+            }
+
+    calls = []
+    monkeypatch.setattr("src.backend.services.openai_client.httpx.post", lambda *args, **kwargs: calls.append((args, kwargs)) or Response())
+    result = ConfiguredReasoningClient(api_key="test-key", provider="aimlapi").generate_json(
+        "Retrieve evidence", {"question": "Test"}, tools=[{"type": "web_search"}]
+    )
+
+    assert calls[0][1]["json"]["model"] == "perplexity/sonar"
+    assert calls[0][1]["json"]["web_search_options"] == {"search_mode": "web"}
+    assert result["evidence"][0]["source_title"] == "Verified source"
 
 
 def test_aimlapi_evidence_fallback_returns_useful_unverified_considerations():

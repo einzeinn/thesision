@@ -103,6 +103,11 @@
 - Confirmed that AI/ML API's GPT-5.6 variants document tool calling but not hosted web search.
 - Configured the no-search evidence path to return explicitly unverified, model-derived engineering considerations rather than a single empty placeholder or fabricated citations.
 
+### 2026-07-15 - AI/ML API Grounded Evidence Model
+
+- Added `AIMLAPI_EVIDENCE_MODEL=perplexity/sonar` for the Evidence stage while keeping GPT-5.6 Luna for all other reasoning stages and the same AI/ML API key.
+- Verified returned Evidence URLs against AI/ML API Sonar `citations` and `search_results` before exposing them in the session.
+
 ## Log Format
 
 Future executions should add a new dated section with:

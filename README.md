@@ -1,22 +1,81 @@
 # Thesision
 
-Thesision is an AI reasoning platform focused on transparent, evidence-driven reasoning for software engineers.
+> Reason Before Decision.
 
-## Overview
+Thesision is a Developer Tools project built for the OpenAI Build Week
+Hackathon. It helps software engineers inspect an AI-assisted technical
+decision as a visible reasoning graph rather than a chat transcript.
 
-This project implements an orchestrator-first reasoning workflow with:
+The product is intentionally narrow: a user asks an engineering question,
+Thesision develops hypotheses, gathers evidence, compares trade-offs, records
+confidence, and produces a conclusion that remains open to inspection.
 
-- a FastAPI backend,
-- SQLite-backed session persistence,
-- a lightweight reasoning workspace UI,
-- and a structured reasoning state for future orchestration stages.
+## Why it exists
 
-## Getting Started
+Engineering decisions are often made from a mixture of incomplete evidence,
+team constraints, and competing priorities. A single generated answer hides
+those inputs. Thesision makes the intermediate work visible so that an engineer
+can review the basis for a recommendation rather than treating it as an answer
+to accept blindly.
+
+## What it does
+
+- Runs an orchestrated reasoning pipeline: Question → Hypothesis → Evidence →
+  Perspectives → Judge → Confidence → Conclusion.
+- Renders the reasoning as an interactive, force-directed graph that grows as
+  stages complete.
+- Shows evidence sources as graph satellites and as clickable references in
+  the workspace.
+- Supports replay, graph inspection, session continuation, JSON import/export,
+  and concise Markdown export.
+- Keeps completed session state in SQLite locally; a JSON export can restore a
+  session after an ephemeral demo deployment restarts.
+
+Thesision is not a chatbot and does not make the final engineering decision for
+the user.
+
+## How the reasoning pipeline works
+
+```text
+Question
+  ↓
+Hypothesis generation
+  ↓
+Grounded evidence retrieval
+  ↓
+Maintainability, performance, and scalability perspectives
+  ↓
+Judge and confidence evaluation
+  ↓
+Conclusion
+```
+
+The orchestrator may run additional rounds when confidence is insufficient or
+important conflicts remain unresolved.
+
+## GPT-5.6 and evidence retrieval
+
+The default AI/ML API configuration uses one API key with two stage-specific
+models:
+
+- `openai/gpt-5.6-luna` handles hypothesis generation, perspectives, judging,
+  conclusion, and concise Markdown report generation.
+- `perplexity/sonar` handles only the Evidence stage and uses web search.
+
+The Evidence adapter accepts a URL only when it appears in Sonar's returned
+`citations` or `search_results`. This prevents the reasoning model from
+presenting a plausible-looking but unverified URL as evidence. If the Evidence
+model is unavailable, Thesision still completes the session with explicitly
+labelled, unverified model-derived considerations; those items do not increase
+evidence quality.
+
+## Run locally
 
 ### Prerequisites
 
 - Python 3.11+
-- Virtual environment support
+- Node.js 20+
+- An AI/ML API key for live reasoning
 
 ### Setup
 
@@ -24,65 +83,98 @@ This project implements an orchestrator-first reasoning workflow with:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+npm ci
 Copy-Item .env.example .env
 ```
 
-### Run the backend
+Set the key in `.env`; no second key is needed:
 
-Configure OpenAI in `.env` before running reasoning. The Evidence stage uses OpenAI hosted web search and only retains URLs returned as search citations:
-
-```powershell
-$env:AI_PROVIDER = "openai"
-$env:OPENAI_API_KEY = "your-key"
-# Optional: $env:OPENAI_MODEL = "gpt-4.1-mini"
+```dotenv
+AI_PROVIDER=aimlapi
+AIMLAPI_API_KEY=your-key
+AIMLAPI_MODEL=openai/gpt-5.6-luna
+AIMLAPI_EVIDENCE_MODEL=perplexity/sonar
 ```
 
-AI/ML API remains available for non-grounded reasoning stages, but it is deliberately rejected for Evidence retrieval until equivalent hosted-search support is verified.
+Build the frontend and start the application:
 
 ```powershell
+npm run build:frontend
 uvicorn src.backend.app.main:app --reload
 ```
 
-### Run tests
+Open `http://127.0.0.1:8000`.
+
+### Verify the project
 
 ```powershell
-pytest -q
+.\.venv\Scripts\python.exe -m pytest -q
+npm run typecheck:frontend
+npm run build:frontend
 ```
 
-## Deployment with Docker
+The test suite uses a fake model, so it does not spend API credits.
 
-1. Copy .env.example to .env and set provider credentials. OpenAI is the
-   recommended production provider because it can ground Evidence with hosted
-   web search. AI/ML API defaults to openai/gpt-5.6-luna for reasoning, but
-   does not provide verified evidence URLs until search compatibility is proven.
-2. Build with: docker build -t thesision .
-3. Run with persistent sessions:
-   docker run --env-file .env -p 8000:8000 -v thesision-data:/app/data thesision
-4. Verify readiness at http://127.0.0.1:8000/health/ready.
-5. Open http://127.0.0.1:8000.
+## Deployment on Render
 
-## Deployment on Render Free
+`render.yaml` defines a Docker-based Render web service. Create a Render
+Blueprint from this repository and provide `AIMLAPI_API_KEY` as the only secret;
+the model variables are already included in the Blueprint.
 
-This repository includes render.yaml and deploys as a Docker web service, so
-the frontend build is created inside the image. In Render, create the Blueprint
-from this repository and enter AIMLAPI_API_KEY as the only required secret.
-The service uses openai/gpt-5.6-luna through AI/ML API.
+The free tier has ephemeral storage. A completed session can be exported as
+JSON and imported later to restore its graph, evidence, exports, and replay
+state. The deployment health endpoint is `/health/live`.
 
-Render free storage is ephemeral. Sessions and SQLite data can disappear after
-a restart or a free-tier spin-down, so this target is appropriate for demos,
-not durable session history. The service health check is /health/live.
+## Suggested judge walkthrough
 
-For production evidence URLs that are verified by hosted web search, override
-the Blueprint variables with AI_PROVIDER=openai and set OPENAI_API_KEY. The
-AI/ML model path continues reasoning but explicitly marks evidence as
-unverified when grounded web search is unavailable.
+1. Ask an engineering question, such as whether a FastAPI service should move
+   to Go.
+2. Watch the Question node stay central while the graph grows through each
+   reasoning stage.
+3. Inspect an Evidence node and open a source link from the right panel.
+4. Select nodes to compare an engineering perspective, conflict, or judge
+   synthesis.
+5. Review confidence and the final conclusion.
+6. Export Markdown for a concise report, or JSON to preserve the full session.
+7. Import a completed JSON session and choose Continue reasoning to append a
+   new round without changing the original session.
 
-Render sits behind a managed proxy, so the Blueprint enables
-TRUST_PROXY_HEADERS=true for per-client rate limiting. Keep that setting false
-outside a trusted proxy; otherwise clients can spoof forwarded IP headers.
+## How I collaborated with Codex
 
-## Project Principles
+Codex was used as an implementation collaborator throughout this project. It
+helped turn the documented product scope into a working FastAPI and TypeScript
+application, while product direction and acceptance decisions stayed explicit.
 
-- Reasoning first, not chatbot-first.
-- Secrets must be provided via environment variables.
-- The architecture remains modular and orchestrator-first.
+Concrete areas where Codex accelerated the work include:
+
+- organizing the orchestrator-first session lifecycle and regression tests;
+- migrating the browser application from inline JavaScript to strict
+  TypeScript modules;
+- implementing and refining the D3 graph layout, animation, sidebar, popup,
+  replay, and continuation interactions;
+- hardening local and Render deployment configuration, including health checks
+  and recovery through JSON session import;
+- adding the GPT-5.6 Luna and Sonar stage-specific configuration, citation
+  validation, and transparent fallback behavior;
+- revising exports so JSON remains portable while Markdown is concise and
+  human-readable.
+
+The dated Git history documents these implementation steps. The Codex session
+used for the core build can be supplied through the hackathon submission's
+`/feedback` Session ID field.
+
+## Project structure
+
+```text
+src/backend/        FastAPI API, orchestrator, agents, session storage
+src/frontend/app/   TypeScript workspace and graph renderer
+docs/               Product, architecture, design, RFCs, and demo guidance
+tests/              Backend and integration regression coverage
+```
+
+## Submission materials
+
+Before final submission, add the verified public Render URL and the public
+YouTube demo URL here or in the hackathon form. The demonstration should show
+the working product, describe the role of Codex and GPT-5.6, and remain under
+three minutes with English audio.

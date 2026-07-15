@@ -9,6 +9,8 @@ services:
         value: aimlapi
       - key: AIMLAPI_MODEL
         value: openai/gpt-5.6-luna
+      - key: AIMLAPI_EVIDENCE_MODEL
+        value: perplexity/sonar
       - key: AIMLAPI_API_KEY
         sync: false
       - key: THESISION_DATA_DIR

@@ -20,7 +20,7 @@ class EvidenceRetriever:
                 tools=[{"type": "web_search"}],
             )
         except ReasoningProviderError as error:
-            if "hosted web search" not in str(error):
+            if getattr(model, "provider", None) != "aimlapi" and "hosted web search" not in str(error):
                 raise
             considerations = model.generate_json(
                 "The configured provider cannot browse the web. Generate 3 to 5 concrete engineering considerations that follow from the question and hypotheses, covering measurable risks, constraints, or validation steps. Return JSON with evidence (list of {claim}). Do not cite, name, or imply any external source. These are unverified model-derived considerations, not web evidence.",
