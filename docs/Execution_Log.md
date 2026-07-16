@@ -155,6 +155,17 @@
 - Added template-specific Question anchors so constellation sessions may begin from different stable regions of the canvas.
 - Replaced empty Judge/rationale `Why` output with a concise factual summary of canonical evidence, perspectives, conflicts, and confidence.
 
+### 2026-07-17 - RFC-017 Enforced Judge and Conflict Results
+
+- Enforced the Judge output contract: a completed round now requires an explicit comparative synthesis and conflict explanation.
+- Added one structured repair attempt for incomplete Judge JSON; a second incomplete response fails explicitly instead of persisting blank reasoning.
+- Derived Conflict nodes now display the Judge-generated conflict summary rather than an orchestration-generated placeholder.
+
+### 2026-07-17 - RFC-018 Scannable Markdown Confidence
+
+- Rendered the canonical confidence score as a compact visual bar and percentage.
+- Added evidence-quality, unresolved-conflict, and perspective-coverage status signals without changing the confidence calculation.
+
 ## Log Format
 
 Future executions should add a new dated section with:

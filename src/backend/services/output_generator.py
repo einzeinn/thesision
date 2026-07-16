@@ -50,20 +50,28 @@ def _confidence_lines(confidence: dict[str, Any]) -> list[str]:
     quality = confidence.get("evidence_quality")
     perspectives = confidence.get("perspective_count")
     conflicts = _text_list(confidence.get("unresolved_conflicts"))
-    lines = [
-        f"**Overall Confidence:** {score} / 100" if isinstance(score, (int, float)) else "**Overall Confidence:** Unknown",
-        "",
-        "### Recorded Signals",
-    ]
+    if isinstance(score, (int, float)):
+        rounded_score = max(0, min(100, round(float(score))))
+        completed_cells = round(rounded_score / 10)
+        confidence_bar = "█" * completed_cells + "░" * (10 - completed_cells)
+        lines = [f"**Overall Confidence:** {confidence_bar} {rounded_score}%"]
+    else:
+        lines = ["**Overall Confidence:** Unknown"]
+    lines.extend(["", "### Reason"])
     if isinstance(quality, (int, float)):
-        lines.append(f"- **Average evidence quality:** {round(float(quality))} / 100")
+        rounded_quality = round(float(quality))
+        lines.append(f"- Evidence quality {'✔' if rounded_quality >= 50 else '✖'} — {rounded_quality} / 100")
+    else:
+        lines.append("- Evidence quality — unavailable")
+    lines.append(f"- Unresolved conflicts {'✔' if not conflicts else '✖'} — {len(conflicts)} recorded")
     if isinstance(perspectives, int):
-        lines.append(f"- **Recorded perspectives:** {perspectives}")
-    lines.append(f"- **Unresolved conflicts:** {len(conflicts)}")
+        lines.append(f"- Perspective coverage {'✔' if perspectives >= 3 else '✖'} — {perspectives} recorded")
+    else:
+        lines.append("- Perspective coverage — unavailable")
     lines.extend([
         "",
         "### Explanation",
-        "The canonical session stores the overall score and these supporting signals, but not a persisted component-score breakdown. The signals are context, not values that should be added together.",
+        "The bar is the persisted overall score. The reason signals are recorded context, not component scores that add up to it.",
     ])
     return lines
 
@@ -192,7 +200,7 @@ def _deterministic_markdown(exported_session_json: str) -> str:
 
 def build_markdown_report(exported_session_json: str, compressed_markdown: str | None = None) -> str:
     """Return model-compressed Markdown, or a concise deterministic JSON-derived fallback."""
-    required_sections = ("## Confidence", "## Evidence", "| # | Finding | Source focus | Strength |", "## Reasoning Trace", "## Caveats", "## Decision Would Change If", "<details>", "## Conclusion")
+    required_sections = ("## Confidence", "█", "### Reason", "## Evidence", "| # | Finding | Source focus | Strength |", "## Reasoning Trace", "## Caveats", "## Decision Would Change If", "<details>", "## Conclusion")
     if isinstance(compressed_markdown, str) and compressed_markdown.strip() and all(section in compressed_markdown for section in required_sections):
         return compressed_markdown.strip() + "\n"
     return _deterministic_markdown(exported_session_json)

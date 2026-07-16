@@ -22,12 +22,18 @@ to accept blindly.
 
 - Runs an orchestrated reasoning pipeline: Question → Hypothesis → Evidence →
   Perspectives → Judge → Confidence → Conclusion.
-- Renders the reasoning as an interactive, force-directed graph that grows as
-  stages complete.
+- Renders the reasoning as an interactive, deterministic constellation graph
+  that grows as stages complete. A question-seeded template keeps replay,
+  imported sessions, and continued reasoning visually stable while retaining
+  an organic shape.
 - Shows evidence sources as graph satellites and as clickable references in
   the workspace.
+- Requires every completed Judge round to include a comparative synthesis and
+  a conflict explanation; incomplete Judge JSON is repaired once or fails
+  explicitly instead of producing an empty result.
 - Supports replay, graph inspection, session continuation, JSON import/export,
-  and concise Markdown export.
+  and concise Markdown export with a scannable confidence bar and recorded
+  evidence, conflict, and perspective signals.
 - Keeps completed session state in SQLite locally; a JSON export can restore a
   session after an ephemeral demo deployment restarts.
 
@@ -52,6 +58,10 @@ Conclusion
 
 The orchestrator may run additional rounds when confidence is insufficient or
 important conflicts remain unresolved.
+
+Judge and Conflict remain inspectable artifacts: the Judge compares the
+recorded hypotheses, evidence, and perspectives, while the Conflict node
+explains whether material disagreement remains and why.
 
 ## GPT-5.6 and evidence retrieval
 
@@ -123,14 +133,16 @@ the model variables are already included in the Blueprint.
 
 The free tier has ephemeral storage. A completed session can be exported as
 JSON and imported later to restore its graph, evidence, exports, and replay
-state. The deployment health endpoint is `/health/live`.
+state. The deployment health endpoint is `/health/live`. Before recording a
+demo, open the service once to allow a free instance to wake up, then run a
+complete live session and verify its evidence links.
 
 ## Suggested judge walkthrough
 
 1. Ask an engineering question, such as whether a FastAPI service should move
    to Go.
-2. Watch the Question node stay central while the graph grows through each
-   reasoning stage.
+2. Watch the Question root and subsequent stage nodes appear in a stable
+   constellation as the graph grows.
 3. Inspect an Evidence node and open a source link from the right panel.
 4. Select nodes to compare an engineering perspective, conflict, or judge
    synthesis.
@@ -150,8 +162,8 @@ Concrete areas where Codex accelerated the work include:
 - organizing the orchestrator-first session lifecycle and regression tests;
 - migrating the browser application from inline JavaScript to strict
   TypeScript modules;
-- implementing and refining the D3 graph layout, animation, sidebar, popup,
-  replay, and continuation interactions;
+- implementing and refining the deterministic constellation graph layout,
+  animation, sidebar, popup, replay, and continuation interactions;
 - hardening local and Render deployment configuration, including health checks
   and recovery through JSON session import;
 - adding the GPT-5.6 Luna and Sonar stage-specific configuration, citation

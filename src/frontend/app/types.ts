@@ -7,7 +7,7 @@ export interface HypothesisData { hypotheses?: Array<{ claim?: string }>; }
 export interface EvidenceData { evidence?: EvidenceItem[]; }
 export interface PerspectiveData { perspectives?: PerspectiveItem[]; }
 export interface ConflictData { summary?: string; conflicts?: string[]; }
-export interface JudgeData { synthesis?: string; }
+export interface JudgeData { synthesis?: string; conflict_summary?: string; validated_claims?: string[]; conflicts?: string[]; unresolved_conflicts?: string[]; }
 export interface ConclusionData { conclusion?: string; }
 export interface QuestionData { question: string; }
 

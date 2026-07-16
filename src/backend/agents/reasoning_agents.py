@@ -58,10 +58,57 @@ class PerspectiveAnalyzer:
 
 class Judge:
     def run(self, model: LanguageModel, state: dict[str, Any]) -> dict[str, Any]:
-        return model.generate_json(
-            "Judge the supplied reasoning. Return JSON with validated_claims, conflicts, unresolved_conflicts, and synthesis. Reject unsupported claims rather than filling gaps.",
-            state,
+        result = model.generate_json(self._instruction(), state)
+        normalized = self._normalize(result)
+        if normalized is not None:
+            return normalized
+
+        repaired = model.generate_json(
+            "Repair this incomplete Judge output. Return only JSON that satisfies the Judge contract. "
+            "Do not add facts, sources, or claims absent from the supplied reasoning artifacts. "
+            "Both conflict_summary and synthesis must be non-empty strings, even when no conflict exists.",
+            {"reasoning": state, "incomplete_judge_output": result},
         )
+        normalized = self._normalize(repaired)
+        if normalized is not None:
+            return normalized
+        raise ReasoningProviderError(
+            "Judge returned incomplete reasoning output after repair; no misleading Judge or Conflict result was saved."
+        )
+
+    @staticmethod
+    def _instruction() -> str:
+        return (
+            "Judge the supplied reasoning by comparing the hypotheses, grounded evidence, and perspectives. "
+            "Return JSON with validated_claims (list of strings), conflicts (list of strings), "
+            "unresolved_conflicts (list of strings), conflict_summary (non-empty string), and synthesis "
+            "(non-empty string). conflict_summary must explain either the material conflict and its impact, "
+            "or why no material conflict remains. synthesis must state the comparative result and why it "
+            "follows from the recorded artifacts. Reject unsupported claims rather than filling gaps."
+        )
+
+    @staticmethod
+    def _string_list(value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+    def _normalize(self, result: Any) -> dict[str, Any] | None:
+        if not isinstance(result, dict):
+            return None
+        synthesis = result.get("synthesis")
+        conflict_summary = result.get("conflict_summary")
+        if not isinstance(synthesis, str) or not synthesis.strip():
+            return None
+        if not isinstance(conflict_summary, str) or not conflict_summary.strip():
+            return None
+        return {
+            "validated_claims": self._string_list(result.get("validated_claims")),
+            "conflicts": self._string_list(result.get("conflicts")),
+            "unresolved_conflicts": self._string_list(result.get("unresolved_conflicts")),
+            "conflict_summary": conflict_summary.strip(),
+            "synthesis": synthesis.strip(),
+        }
 
 
 class ConclusionGenerator:
@@ -75,6 +122,6 @@ class ConclusionGenerator:
 class MarkdownReportComposer:
     def run(self, model: LanguageModel, exported_session: dict[str, Any]) -> dict[str, Any]:
         return model.generate_json(
-            "Create a concise, explainable Markdown engineering report from canonical session JSON. Return JSON with one string field: markdown. Use these headings exactly: Question, Confidence, Evidence Assessment, Reasoning Trace, Trade-offs, Caveats, Decision Would Change If, Conclusion. Explain confidence only with canonical evaluator inputs; mark unavailable dimensions Unknown. Classify each evidence item with Summary, Source Focus, Source, Supports, Confidence, and Evidence Strength; use Unknown when the canonical item lacks that metadata. Do not repeat an identical evidence summary: state it once, then preserve each later source as its own Source Focus and link. Render Decision Would Change If inside an HTML <details> block with a concise <summary>. Use recorded perspective analysis when no explicit trade-off list exists, and use Judge synthesis as Why when conclusion rationale is absent. Reasoning Trace must describe observable Question → hypothesis → evidence → perspective → conflict → judge → conclusion artifacts, never chain-of-thought. Keep Conclusion under about 150 words and limit it to recommendation, why, and change conditions. Render caveats as uncertainty, impact, and needed evidence; use Unknown when absent. Do not invent, infer, or change any claim, source, URL, recommendation, statistic, confidence, or condition. Do not include raw JSON, a code fence, or commentary about this instruction.",
+            "Create a concise, explainable Markdown engineering report from canonical session JSON. Return JSON with one string field: markdown. Use these headings exactly: Question, Confidence, Evidence Assessment, Reasoning Trace, Trade-offs, Caveats, Decision Would Change If, Conclusion. In Confidence, render the persisted overall score as a ten-cell █/░ bar followed by its percentage, then a ### Reason list for recorded evidence quality, unresolved conflicts, and perspective coverage; these are context signals, not component scores. Explain confidence only with canonical evaluator inputs; mark unavailable dimensions Unknown. Classify each evidence item with Summary, Source Focus, Source, Supports, Confidence, and Evidence Strength; use Unknown when the canonical item lacks that metadata. Do not repeat an identical evidence summary: state it once, then preserve each later source as its own Source Focus and link. Render Decision Would Change If inside an HTML <details> block with a concise <summary>. Use recorded perspective analysis when no explicit trade-off list exists, and use Judge synthesis as Why when conclusion rationale is absent. Reasoning Trace must describe observable Question → hypothesis → evidence → perspective → conflict → judge → conclusion artifacts, never chain-of-thought. Keep Conclusion under about 150 words and limit it to recommendation, why, and change conditions. Render caveats as uncertainty, impact, and needed evidence; use Unknown when absent. Do not invent, infer, or change any claim, source, URL, recommendation, statistic, confidence, or condition. Do not include raw JSON, a code fence, or commentary about this instruction.",
             {"canonical_session": exported_session},
         )

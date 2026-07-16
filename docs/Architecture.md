@@ -211,6 +211,13 @@ Responsibilities
 - identify unsupported arguments
 - merge compatible reasoning
 
+Every completed Judge result must also persist a comparative `synthesis` and
+a `conflict_summary`. The latter explicitly states whether material conflicts
+remain and why, so the derived Conflict graph node is inspectable rather than
+a generic orchestration placeholder. Incomplete provider output is repaired
+once and then fails explicitly; it is never silently stored as an empty Judge
+result.
+
 ---
 
 ## Confidence Evaluator

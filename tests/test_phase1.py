@@ -17,7 +17,7 @@ class FakeReasoningModel:
         if instruction.startswith("Analyze the engineering"):
             return {"perspectives": [{"name": "maintainability", "analysis": "Retain team familiarity.", "tradeoffs": ["runtime performance"]}, {"name": "performance", "analysis": "Measure bottlenecks.", "tradeoffs": ["implementation cost"]}, {"name": "scalability", "analysis": "Scale current service first.", "tradeoffs": ["operational complexity"]}]}
         if instruction.startswith("Judge"):
-            return {"validated_claims": ["Measure first"], "conflicts": [], "unresolved_conflicts": [], "synthesis": "Evidence supports a measured decision."}
+            return {"validated_claims": ["Measure first"], "conflicts": [], "unresolved_conflicts": [], "conflict_summary": "No material conflict remains because the evidence supports measurement before change.", "synthesis": "Evidence supports a measured decision."}
         return {"conclusion": "Measure before migrating.", "rationale": "Current evidence is sufficient.", "caveats": [], "next_steps": ["Profile the workload." ]}
 
 
@@ -76,6 +76,43 @@ def test_run_pipeline_advances_stage_and_persists_state():
     assert state["conclusion"]["conclusion"] == "Measure before migrating."
     assert {node["type"] for node in state["nodes"]} >= {"hypothesis", "evidence", "perspective", "conflict", "judge", "conclusion"}
     assert all("round" in node for node in state["nodes"])
+
+
+def test_judge_repairs_incomplete_output_before_persisting_it():
+    from src.backend.agents.reasoning_agents import Judge
+
+    class IncompleteJudgeModel:
+        def __init__(self):
+            self.calls = 0
+
+        def generate_json(self, instruction, payload, *, tools=None):
+            self.calls += 1
+            if self.calls == 1:
+                return {"validated_claims": ["Measure first"], "conflicts": []}
+            return {
+                "validated_claims": ["Measure first"],
+                "conflicts": [],
+                "unresolved_conflicts": [],
+                "conflict_summary": "No material conflict remains after comparing the available evidence.",
+                "synthesis": "Measure the workload before deciding whether to migrate.",
+            }
+
+    result = Judge().run(IncompleteJudgeModel(), {"hypothesis": {}, "evidence": {}, "perspectives": {}})
+
+    assert result["synthesis"] == "Measure the workload before deciding whether to migrate."
+    assert result["conflict_summary"].startswith("No material conflict")
+
+
+def test_judge_rejects_two_incomplete_outputs_instead_of_storing_empty_results():
+    from src.backend.agents.reasoning_agents import Judge
+    from src.backend.services.openai_client import ReasoningProviderError
+
+    class EmptyJudgeModel:
+        def generate_json(self, instruction, payload, *, tools=None):
+            return {"validated_claims": []}
+
+    with pytest.raises(ReasoningProviderError, match="incomplete reasoning output"):
+        Judge().run(EmptyJudgeModel(), {})
 
 
 def test_run_fails_explicitly_without_an_openai_key():
@@ -392,6 +429,10 @@ def test_deterministic_markdown_report_explains_only_canonical_artifacts():
     assert "## Decision Would Change If" in report
     assert "[Engineering source](https://example.com/source)" in report
     assert "| # | Finding | Source focus | Strength |" in report
+    assert "**Overall Confidence:** ██████░░░░ 63%" in report
+    assert "- Evidence quality ✔ — 60 / 100" in report
+    assert "- Unresolved conflicts ✖ — 1 recorded" in report
+    assert "- Perspective coverage ✔ — 3 recorded" in report
     assert "**Why:** Measure before deciding." in report
     assert "<details>" in report
 

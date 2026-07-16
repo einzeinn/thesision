@@ -52,7 +52,7 @@ function normaliseNode(node: {
       return {
         ...node,
         type: "judge",
-        data: node.data as { synthesis?: string },
+        data: node.data as { synthesis?: string; conflict_summary?: string; validated_claims?: string[]; conflicts?: string[]; unresolved_conflicts?: string[] },
       };
     case "conclusion":
       return {

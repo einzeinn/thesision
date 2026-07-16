@@ -109,7 +109,11 @@ class ReasoningOrchestrator:
                     "type": "conflict",
                     "round": state["iteration"],
                     "status": "completed",
-                    "data": {"conflicts": conflicts, "summary": "No unresolved conflict detected." if not conflicts else "Conflicts require inspection."},
+                    # The Judge owns this explanation; orchestration must not fabricate a conflict result.
+                    "data": {
+                        "conflicts": conflicts,
+                        "summary": result["conflict_summary"],
+                    },
                 }
             )
 
