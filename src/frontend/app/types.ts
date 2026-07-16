@@ -24,7 +24,7 @@ export type ReasoningNode = QuestionNode | HypothesisNode | EvidenceNode | Persp
 export type PositionedNode = ReasoningNode & { x: number; y: number; vx?: number; vy?: number; fx?: number | null; fy?: number | null; index?: number; };
 export type GraphEdgeKind = 'flow' | 'continuation' | 'thread' | 'satellite';
 export interface GraphEdge { source: string | PositionedNode; target: string | PositionedNode; kind: GraphEdgeKind; }
-export interface GraphData { nodes: ReasoningNode[]; edges: GraphEdge[]; rounds: number; }
+export interface GraphData { nodes: ReasoningNode[]; edges: GraphEdge[]; rounds: number; layoutSeed: string; }
 export interface ReasoningState { nodes?: Array<{ id: string; type: string; round: number; data: unknown }>; iteration?: number; status: string; current_stage?: string; evidence?: EvidenceData; confidence?: { score?: number }; errors?: string[]; }
 export interface SessionPayload { session_id?: string; question: string; state: ReasoningState; }
 export interface PopupState { selectedNodeId: string | null; }

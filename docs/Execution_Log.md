@@ -108,6 +108,53 @@
 - Added `AIMLAPI_EVIDENCE_MODEL=perplexity/sonar` for the Evidence stage while keeping GPT-5.6 Luna for all other reasoning stages and the same AI/ML API key.
 - Verified returned Evidence URLs against AI/ML API Sonar `citations` and `search_results` before exposing them in the session.
 
+### 2026-07-16 - Sonar Evidence Response Fix
+
+- Fixed the Sonar Evidence request by removing the unsupported `json_object` response format.
+- Mapped Sonar's documented text response, `citations`, and `search_results` directly into grounded evidence links instead of expecting a model-generated JSON evidence payload.
+
+### 2026-07-17 - Provider Resilience and Stable Graph Layout
+
+- Added bounded retry handling for temporary provider failures (429/5xx and transport errors), while invalid requests still fail immediately.
+- Removed collision simulation from the horizontal DAG renderer because it changed node positions between polling renders; stage and satellite placement is now deterministic from the same session graph data.
+- Added a frontend error-message mapper so provider, network, rate-limit, import, continuation, and export failures are presented as concise English next steps instead of raw HTTP/provider diagnostics.
+
+### 2026-07-17 - RFC-010 Graph Readability Refinement
+
+- Refined only graph positioning: primary stages now use deterministic vertical anchors and Y-only collision relaxation while retaining the left-to-right timeline.
+- Expanded Evidence and Perspective satellite clusters to a 44px radial layout so their individual source/point nodes remain readable.
+
+### 2026-07-17 - RFC-011 Serpentine Graph and Evidence Previews
+
+- Folded debate rounds into alternating horizontal rows so continuation begins below the prior Judge instead of expanding graph width per round.
+- Reduced evidence-panel claims to a two-sentence, 280-character preview while preserving each source link.
+
+### 2026-07-17 - RFC-012 Explainable Reasoning Reports
+
+- Added a canonical-session Markdown renderer for confidence inputs, classified evidence, observable reasoning trace, structured caveats, and decision-change conditions.
+- Tightened AI report composition and fall back to the deterministic renderer whenever the required report sections are absent.
+
+### 2026-07-17 - RFC-013 Constellation Graph Layout
+
+- Replaced serpentine graph positioning with a 30-template, question-seeded constellation renderer; selection is deterministic so replay and imported/continued sessions remain stable.
+- Kept only Y-only collision relaxation, radial Evidence satellites, loose Perspective fans, and the existing graph/replay behavior.
+
+### 2026-07-17 - RFC-014 First-Read Refinement
+
+- Switched constellation graph edges to straight segments for immediate visual reading.
+- Prevented repeated evidence findings in deterministic reports, added source-specific grounded snippets when available, made decision conditions expandable, and used canonical Judge/perspective fallbacks before showing `Unknown`.
+
+### 2026-07-17 - RFC-015 Concise Canonical Reports
+
+- Replaced misleading reconstructed confidence components with the persisted score and recorded signals only.
+- Condensed evidence into a five-row source table, trade-offs/caveats into bounded excerpts, and decision conditions into at most eight prioritized expandable items.
+- Added latest Judge-node fallbacks for report trace and conclusion rationale.
+
+### 2026-07-17 - RFC-016 Variable Constellation and Why Fallback
+
+- Added template-specific Question anchors so constellation sessions may begin from different stable regions of the canvas.
+- Replaced empty Judge/rationale `Why` output with a concise factual summary of canonical evidence, perspectives, conflicts, and confidence.
+
 ## Log Format
 
 Future executions should add a new dated section with:

@@ -111,20 +111,27 @@ The graph is the heart of the application.
 
 Everything should visually grow from the user's question.
 
-The graph is NOT a fixed flowchart. It is a constrained force-directed layout that grows organically during reasoning, expanding radially outward from the Question node without sacrificing the readable reasoning order.
+The graph is a constrained, horizontally progressing DAG. It grows from the
+Question through the reasoning stages while preserving readable order.
 
 Implementation: `d3-force` (or equivalent physics simulation library).
 
-- `forceLink` — draws each connection.
-- `forceManyBody` — repels nodes so they don't overlap.
-- `forceRadial(round * R, centerX, centerY)` — pulls each node to a radius proportional to its debate round. This single force is what produces the "growing outward" feeling: round 1 sits close to the Question, round 3 sits further out.
-- `forceCollide` — prevents node overlap as the graph settles.
-- `forceX` / `forceY` — pull each node type toward a stable clockwise lane, keeping flow connections short and readable.
+- The graph uses a deterministic constellation template selected from the
+  canonical question. Each debate round appends a compact local constellation;
+  new rounds never reposition existing regions. Different questions can look
+  distinct without using random or free force-directed placement.
+- Template geometry assigns each primary stage a readable local position.
+  Small deterministic offsets prevent a rigid grid without making placement
+  random. Evidence satellites use readable radial clusters and Perspective
+  satellites use a loose fan around their parent.
+- `forceCollide` may resolve only small visual collisions after the hierarchy
+  has been positioned; it never changes a node's stage/round column.
 
 Nodes gradually connect together until they resemble a neural network. This is a direct consequence of round count, not a separate visual effect:
 
-- 1 round, debate resolved immediately → small, sparse shape (Question + one shell of Hypothesis / Evidence / Perspectives / Conflict / Judge + Conclusion).
-- 3 rounds, debate escalates fully → dense, many-node structure that visually reads as a neural network, because each round adds a full shell of nodes plus cross-round connections.
+- 1 round, debate resolved immediately → a short, sparse left-to-right path.
+- 3 rounds, debate escalates fully → a longer but still readable left-to-right
+  timeline, with thread links and satellites adding local density.
 
 Maximum debate length is 3 rounds. The backend/agent decides how many rounds occur (a round ends early once Judge marks the debate resolved); the frontend only renders however many rounds it's given.
 
@@ -161,12 +168,12 @@ Connections should grow instead of appearing instantly:
 - Nodes fade and scale in with a staggered delay (small, incremental delay per node — not simultaneous). The scale animation must target an inner SVG group, never the outer group whose transform stores the node's settled position.
 - Links fade in independently, staggered slightly ahead of or alongside the nodes they connect.
 - On mount, the simulation should already be settled (run enough ticks server-side or synchronously before first paint) so nodes don't visibly jitter into place — only the fade/stagger reveal should be visible, not the physics settling.
-- The Question node is a fixed visual anchor at the center of the workspace.
-  Incremental updates retain settled positions for existing nodes; only newly
-  available nodes are laid out around the retained graph.
-- When a continuation adds rounds beyond the initial debate, radial spacing
-  adapts to keep the graph in view. Users can drag the background to pan and
-  use the mouse wheel to zoom without moving graph nodes.
+- The Question is the first revealed root node, positioned by the selected
+  constellation template rather than fixed to one screen side. Incremental
+  updates retain settled positions for existing nodes.
+- Edges are straight line segments between constellation nodes. Users can
+  drag the background to pan and use the mouse wheel to zoom without moving
+  graph nodes.
 
 ---
 
@@ -363,6 +370,15 @@ Future
 PDF
 
 Export becomes available at the same moment as Replay — once the Conclusion node appears. Before that, there's nothing finished to export, so don't show the controls yet.
+
+Markdown reports must explain the visible reasoning outcome without exposing
+chain-of-thought: confidence inputs, classified evidence, observable reasoning
+trace, caveats, and conditions that would change the decision. Any unavailable
+canonical detail is shown as `Unknown`, never inferred.
+
+Reports are concise by default: the report summarizes the most decision-relevant
+canonical artifacts, while the JSON export remains the exhaustive inspection
+format.
 
 ---
 

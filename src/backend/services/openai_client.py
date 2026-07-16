@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import time
 from typing import Any, Protocol
 
 import httpx
@@ -31,6 +33,31 @@ class ConfiguredReasoningClient:
         self.model = model or os.getenv(model_name, default_model)
         self.evidence_model = os.getenv("AIMLAPI_EVIDENCE_MODEL", "perplexity/sonar")
 
+    def _post_with_retry(self, url: str, body: dict[str, Any]) -> httpx.Response:
+        """Retry only temporary provider failures; malformed requests fail at once."""
+        attempts = max(1, min(3, int(os.getenv("PROVIDER_RETRY_ATTEMPTS", "3"))))
+        last_error: httpx.HTTPError | None = None
+        for attempt in range(attempts):
+            try:
+                response = httpx.post(
+                    url,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    json=body,
+                    timeout=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "60")),
+                )
+            except httpx.HTTPError as error:
+                last_error = error
+                if attempt == attempts - 1:
+                    raise
+            else:
+                status_code = getattr(response, "status_code", None)
+                if status_code not in {429, 500, 502, 503, 504} or attempt == attempts - 1:
+                    return response
+            time.sleep(2**attempt)
+        if last_error is not None:
+            raise last_error
+        raise ReasoningProviderError("Provider retry loop ended without a response.")
+
     def generate_json(self, instruction: str, payload: dict[str, Any], *, tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         if not self.api_key:
             key_name = "AIMLAPI_API_KEY" if self.provider == "aimlapi" else "OPENAI_API_KEY"
@@ -52,12 +79,7 @@ class ConfiguredReasoningClient:
         if tools:
             body["tools"] = tools
         try:
-            response = httpx.post(
-                "https://api.openai.com/v1/responses",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json=body,
-                timeout=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "60")),
-            )
+            response = self._post_with_retry("https://api.openai.com/v1/responses", body)
             response.raise_for_status()
             response_body = self._read_response_json(response, "OpenAI")
         except httpx.HTTPError as error:
@@ -113,12 +135,7 @@ class ConfiguredReasoningClient:
             "response_format": {"type": "json_object"},
         }
         try:
-            response = httpx.post(
-                "https://api.aimlapi.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json=body,
-                timeout=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "60")),
-            )
+            response = self._post_with_retry("https://api.aimlapi.com/v1/chat/completions", body)
             response.raise_for_status()
             response_body = self._read_response_json(response, "AI/ML API")
         except httpx.HTTPError as error:
@@ -136,16 +153,10 @@ class ConfiguredReasoningClient:
                 {"role": "user", "content": json.dumps(payload)},
             ],
             "temperature": 0.2,
-            "response_format": {"type": "json_object"},
             "web_search_options": {"search_mode": "web"},
         }
         try:
-            response = httpx.post(
-                "https://api.aimlapi.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json=body,
-                timeout=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "60")),
-            )
+            response = self._post_with_retry("https://api.aimlapi.com/v1/chat/completions", body)
             response.raise_for_status()
             response_body = self._read_response_json(response, "AI/ML API evidence model")
         except httpx.HTTPError as error:
@@ -153,38 +164,50 @@ class ConfiguredReasoningClient:
 
         choices = response_body.get("choices", [])
         output_text = choices[0].get("message", {}).get("content") if choices else None
-        return self._ground_aimlapi_evidence(self._parse_json_output(output_text, "AI/ML API evidence model"), response_body)
+        return self._ground_aimlapi_evidence(output_text, response_body)
 
     @staticmethod
-    def _ground_aimlapi_evidence(result: dict[str, Any], response_body: dict[str, Any]) -> dict[str, Any]:
-        sources: dict[str, str] = {}
+    def _ground_aimlapi_evidence(output_text: Any, response_body: dict[str, Any]) -> dict[str, Any]:
+        sources: dict[str, dict[str, str]] = {}
         for item in response_body.get("search_results", []):
             if isinstance(item, dict) and isinstance(item.get("url"), str):
                 url = item["url"].rstrip("/")
-                sources[url] = str(item.get("title") or item["url"])
+                source_text = next(
+                    (
+                        value.strip()
+                        for key in ("snippet", "description", "content", "text")
+                        if isinstance((value := item.get(key)), str) and value.strip()
+                    ),
+                    "",
+                )
+                sources[url] = {
+                    "title": str(item.get("title") or item["url"]),
+                    "summary": re.sub(r"\[\d+(?:\]\[\d+)*\]", "", source_text).strip(),
+                }
         for url in response_body.get("citations", []):
             if isinstance(url, str) and url:
-                sources.setdefault(url.rstrip("/"), url)
+                sources.setdefault(url.rstrip("/"), {"title": url, "summary": ""})
 
-        grounded: list[dict[str, Any]] = []
-        for item in result.get("evidence", []):
-            if not isinstance(item, dict):
-                continue
-            url = item.get("url")
-            if isinstance(url, str) and url.rstrip("/") in sources:
-                item["url"] = url
-                item["source_title"] = sources[url.rstrip("/")]
-                grounded.append(item)
-            else:
-                grounded.append({
-                    "claim": item.get("claim", "No verified source was found for this claim."),
-                    "source_title": "No verified web source found",
-                    "url": None,
-                    "relevance": "unverified",
-                    "quality": "unverified",
-                })
-        result["evidence"] = grounded
-        return result
+        summary = re.sub(r"\[\d+(?:\]\[\d+)*\]", "", output_text).strip() if isinstance(output_text, str) else ""
+        if not summary or not sources:
+            return {"evidence": [{
+                "claim": "No verified web source was returned for this search.",
+                "source_title": "No verified web source found",
+                "url": None,
+                "relevance": "unverified",
+                "quality": "unverified",
+            }]}
+
+        return {"evidence": [
+            {
+                "claim": source["summary"] or summary,
+                "source_title": source["title"],
+                "url": url,
+                "relevance": "grounded-search",
+                "quality": "medium",
+            }
+            for url, source in list(sources.items())[:5]
+        ]}
 
     @staticmethod
     def _read_response_json(response: httpx.Response, provider_name: str) -> dict[str, Any]:

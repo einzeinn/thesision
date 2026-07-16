@@ -1,10 +1,12 @@
+import { friendlyError } from './errors';
+
 export async function downloadSessionExport(sessionId: string | null, format: 'markdown' | 'json', setStatus: (message: string, state?: string) => void) {
   if (!sessionId) return;
   try {
     const response = await fetch(`/api/sessions/${sessionId}/exports/${format}`);
     if (!response.ok) {
       const detail = await response.text();
-      setStatus(`Export unavailable: ${detail || response.statusText}`, 'error');
+      setStatus(friendlyError(new Error(detail || response.statusText), "We couldn't prepare that export. Please try again."), 'error');
       return;
     }
 
@@ -21,6 +23,6 @@ export async function downloadSessionExport(sessionId: string | null, format: 'm
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
     setStatus(`${format === 'markdown' ? 'Markdown' : 'JSON'} export downloaded.`, 'complete');
   } catch (error) {
-    setStatus(`Export unavailable: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    setStatus(friendlyError(error, "We couldn't prepare that export. Please try again."), 'error');
   }
 }

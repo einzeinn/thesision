@@ -155,7 +155,7 @@ export function buildGraphData(session: SessionPayload): GraphData {
     if (node.type === "satellite")
       edges.push({ source: node.parentId, target: node.id, kind: "satellite" });
   });
-  return { nodes: [...primary, ...satelliteNodes], edges, rounds };
+  return { nodes: [...primary, ...satelliteNodes], edges, rounds, layoutSeed: session.question };
 }
 
 const colors = {
@@ -239,6 +239,70 @@ function nodeMarker(node: ReasoningNode): string {
   )[node.type];
 }
 
+type ConstellationPoint = Readonly<{ x: number; y: number }>;
+type ConstellationStages = Readonly<Record<(typeof flowOrder)[number], ConstellationPoint>>;
+type ConstellationTemplate = Readonly<{ question: ConstellationPoint; stages: ConstellationStages }>;
+
+const constellationBases: readonly ConstellationStages[] = [
+  { hypothesis: { x: 0, y: -42 }, evidence: { x: 52, y: -82 }, perspective: { x: 30, y: 24 }, conflict: { x: 98, y: 54 }, judge: { x: 152, y: -6 } },
+  { hypothesis: { x: 8, y: -62 }, evidence: { x: 66, y: -42 }, perspective: { x: 18, y: 22 }, conflict: { x: 102, y: 66 }, judge: { x: 154, y: 12 } },
+  { hypothesis: { x: -6, y: -30 }, evidence: { x: 48, y: -70 }, perspective: { x: 54, y: 16 }, conflict: { x: 114, y: 42 }, judge: { x: 162, y: -18 } },
+  { hypothesis: { x: 10, y: -56 }, evidence: { x: 76, y: -78 }, perspective: { x: 22, y: 42 }, conflict: { x: 92, y: 70 }, judge: { x: 156, y: -2 } },
+  { hypothesis: { x: -8, y: -66 }, evidence: { x: 48, y: -28 }, perspective: { x: 64, y: 14 }, conflict: { x: 120, y: 60 }, judge: { x: 168, y: 4 } },
+];
+
+const questionAnchors: readonly ConstellationPoint[] = [
+  { x: 54, y: 0 },
+  { x: 282, y: -132 },
+  { x: 302, y: 124 },
+  { x: 178, y: -152 },
+  { x: 192, y: 154 },
+  { x: 362, y: -104 },
+];
+
+const constellationTemplates: readonly ConstellationTemplate[] = Array.from(
+  { length: 30 },
+  (_, index) => {
+    const base = constellationBases[index % constellationBases.length] ?? constellationBases[0]!;
+    const variation = Math.floor(index / constellationBases.length) - 2;
+    const question = questionAnchors[index % questionAnchors.length] ?? questionAnchors[0]!;
+    return {
+      question: { x: question.x + variation * 4, y: question.y - variation * 3 },
+      stages: Object.fromEntries(
+        flowOrder.map((stage, stageIndex) => [
+          stage,
+          {
+            x: base[stage].x + variation * ((stageIndex % 2 === 0 ? 3 : -2)),
+            y: base[stage].y + variation * ((stageIndex % 2 === 0 ? 4 : -3)),
+          },
+        ]),
+      ) as ConstellationStages,
+    };
+  },
+);
+
+function organicOffset(id: string, magnitude: number): number {
+  let hash = 2166136261;
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) / 0xffffffff - 0.5) * magnitude * 2;
+}
+
+function selectConstellation(seed: string): ConstellationTemplate {
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return constellationTemplates[(hash >>> 0) % constellationTemplates.length] ?? constellationTemplates[0]!;
+}
+
+function clampY(y: number, height: number, padding: number): number {
+  return Math.max(padding, Math.min(height - padding, y));
+}
+
 interface GraphRendererOptions {
   graph: HTMLElement;
   popup: HTMLElement;
@@ -255,22 +319,8 @@ interface PositionedEdge extends Omit<GraphEdge, "source" | "target"> {
   target: PositionedNode;
 }
 export function createGraphRenderer(options: GraphRendererOptions) {
-  const settledPositions = new Map<string, { x: number; y: number }>();
-  const continuationPath = (
-    edge: PositionedEdge,
-    centerX: number,
-    centerY: number,
-  ) => {
-    const middleX = (edge.source.x + edge.target.x) / 2;
-    const middleY = (edge.source.y + edge.target.y) / 2;
-    const distance = Math.hypot(middleX - centerX, middleY - centerY) || 1;
-    const reach =
-      Math.max(
-        Math.hypot(edge.source.x - centerX, edge.source.y - centerY),
-        Math.hypot(edge.target.x - centerX, edge.target.y - centerY),
-      ) + 42;
-    return `M ${edge.source.x} ${edge.source.y} Q ${centerX + ((middleX - centerX) / distance) * reach} ${centerY + ((middleY - centerY) / distance) * reach} ${edge.target.x} ${edge.target.y}`;
-  };
+  const straightPath = (edge: PositionedEdge) =>
+    `M ${edge.source.x} ${edge.source.y} L ${edge.target.x} ${edge.target.y}`;
   const finishEdge = (edge: SVGPathElement) => {
     edge.style.opacity = "1";
     edge.setAttribute("stroke-dashoffset", "0");
@@ -371,25 +421,90 @@ export function createGraphRenderer(options: GraphRendererOptions) {
     options.graph.append(options.popup);
     const width = options.graph.clientWidth || 700;
     const height = options.graph.clientHeight || 590;
-    const centerX = width / 2;
     const centerY = height / 2;
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     options.graph.prepend(svg);
     enableViewportControls(svg, width, height);
-    const maxRound = Math.max(1, ...data.nodes.map((node) => node.round));
-    const ringSpacing = Math.max(
-      38,
-      Math.min(108, (Math.min(width, height) / 2 - 54) / maxRound),
-    );
-    const nodes: PositionedNode[] = data.nodes.map((node, index) => {
-      const settled = settledPositions.get(node.id);
-      if (node.type === "question") return { ...node, x: centerX, y: centerY, fx: centerX, fy: centerY };
-      if (settled) return { ...node, x: settled.x, y: settled.y, fx: settled.x, fy: settled.y };
-      const angle = index * 2.399963229728653;
-      const radius = Math.max(ringSpacing, node.round * ringSpacing);
-      return { ...node, x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius };
+    // A stable template makes replay and imported sessions readable and repeatable.
+    const rounds = Math.max(1, data.rounds);
+    const horizontalPadding = 54;
+    const verticalPadding = 42;
+    const template = selectConstellation(data.layoutSeed);
+    const regionWidth = 212;
+    const roundYOffset = [0, 68, -46];
+    const primaryNodes = data.nodes.filter((node) => node.type !== "satellite");
+    const primaryPositions = new Map<string, { x: number; y: number }>();
+    primaryNodes.forEach((node) => {
+      if (node.type === "question") {
+        primaryPositions.set(node.id, {
+          x: template.question.x,
+          y: clampY(centerY + template.question.y, height, verticalPadding),
+        });
+        return;
+      }
+      const round = node.type === "conclusion" ? rounds : node.round;
+      const regionX = 128 + (Math.max(1, round) - 1) * regionWidth;
+      const regionY = centerY + (roundYOffset[(Math.max(1, round) - 1) % roundYOffset.length] ?? 0);
+      const point = node.type === "conclusion"
+        ? { x: template.stages.judge.x + 70, y: template.stages.judge.y + 54 }
+        : template.stages[node.type];
+      primaryPositions.set(node.id, {
+        x: regionX + point.x + organicOffset(`${node.id}-x`, 4),
+        y: clampY(regionY + point.y + organicOffset(`${node.id}-y`, 4), height, verticalPadding),
+      });
     });
+    const satellitesByParent = new Map<string, ReasoningNode[]>();
+    data.nodes.forEach((node) => {
+      if (node.type !== "satellite") return;
+      const siblings = satellitesByParent.get(node.parentId) || [];
+      siblings.push(node);
+      satellitesByParent.set(node.parentId, siblings);
+    });
+    const nodes: PositionedNode[] = data.nodes.map((node) => {
+      if (node.type !== "satellite") {
+        const position = primaryPositions.get(node.id) || { x: horizontalPadding, y: centerY };
+        return { ...node, ...position };
+      }
+      const parent = primaryPositions.get(node.parentId) || { x: horizontalPadding, y: centerY };
+      const siblings = satellitesByParent.get(node.parentId) || [];
+      const index = siblings.findIndex((sibling) => sibling.id === node.id);
+      const phase = organicOffset(node.parentId, Math.PI);
+      const angle = phase + (index / Math.max(1, siblings.length)) * Math.PI * 2;
+      const satelliteDistance = node.parentType === "evidence" ? 42 : 34;
+      return {
+        ...node,
+        x: node.parentType === "evidence"
+          ? parent.x + Math.cos(angle) * satelliteDistance
+          : parent.x + 26 + organicOffset(`${node.id}-x`, 6),
+        y: node.parentType === "evidence"
+          ? clampY(parent.y + Math.sin(angle) * satelliteDistance, height, verticalPadding)
+          : clampY(parent.y + (index - (siblings.length - 1) / 2) * 24, height, verticalPadding),
+      };
+    });
+    const preferredY = new Map(nodes.map((node) => [node.id, node.y]));
+    // A small deterministic relaxation separates future same-stage siblings on Y only.
+    for (let iteration = 0; iteration < 10; iteration += 1) {
+      nodes.forEach((node) => {
+        const target = preferredY.get(node.id) ?? node.y;
+        node.y = clampY(node.y + (target - node.y) * 0.22, height, verticalPadding);
+      });
+      for (let first = 0; first < nodes.length; first += 1) {
+        const source = nodes[first];
+        if (!source) continue;
+        for (let second = first + 1; second < nodes.length; second += 1) {
+          const target = nodes[second];
+          if (!target) continue;
+          const minimumDistance = nodeRadius(source) + nodeRadius(target) + 8;
+          if (Math.abs(source.x - target.x) >= minimumDistance) continue;
+          const overlap = minimumDistance - Math.abs(source.y - target.y);
+          if (overlap <= 0) continue;
+          const direction = source.y <= target.y ? -1 : 1;
+          source.y = clampY(source.y + direction * overlap / 2, height, verticalPadding);
+          target.y = clampY(target.y - direction * overlap / 2, height, verticalPadding);
+        }
+      }
+    }
     const byId = new Map(nodes.map((node) => [node.id, node]));
     const links: PositionedEdge[] = data.edges.flatMap((edge) => {
       const source =
@@ -402,63 +517,6 @@ export function createGraphRenderer(options: GraphRendererOptions) {
           : byId.get(edge.target.id);
       return source && target ? [{ ...edge, source, target }] : [];
     });
-    const d3 = window.d3;
-    if (d3?.forceSimulation) {
-      const simulation = d3
-        .forceSimulation<PositionedNode>(nodes)
-        .force(
-          "link",
-          d3
-            .forceLink<PositionedNode, PositionedEdge>(links)
-            .id((node) => node.id)
-            .distance((edge) =>
-              edge.kind === "satellite" ? 28 : edge.kind === "thread" ? 74 : 92,
-            )
-            .strength((edge) =>
-              edge.kind === "satellite"
-                ? 0.95
-                : edge.kind === "thread"
-                  ? 0.5
-                  : 0.62,
-            ),
-        )
-        .force(
-          "charge",
-          d3
-            .forceManyBody<PositionedNode>()
-            .strength((node) => (node.type === "satellite" ? -85 : -300)),
-        )
-        .force(
-          "radial",
-          d3
-            .forceRadial<PositionedNode>(
-              (node) => node.round * ringSpacing,
-              centerX,
-              centerY,
-            )
-            .strength((node) => (node.type === "satellite" ? 0.08 : 0.3)),
-        )
-        .force(
-          "collide",
-          d3
-            .forceCollide<PositionedNode>((node) =>
-              node.type === "satellite"
-                ? 10
-                : node.type === "question" || node.type === "conclusion"
-                  ? 32
-                  : 26,
-            )
-            .iterations(2),
-        )
-        .stop();
-      const question = nodes.find((node) => node.type === "question");
-      if (question) {
-        question.fx = centerX;
-        question.fy = centerY;
-      }
-      for (let tick = 0; tick < 220; tick += 1) simulation.tick();
-    }
-    nodes.forEach((node) => settledPositions.set(node.id, { x: node.x, y: node.y }));
     options.onNodes(nodes);
     const edges = links.map((edge) => {
       const path = document.createElementNS(
@@ -466,12 +524,7 @@ export function createGraphRenderer(options: GraphRendererOptions) {
         "path",
       );
       path.classList.add("edge", edge.kind);
-      path.setAttribute(
-        "d",
-        edge.kind === "continuation"
-          ? continuationPath(edge, centerX, centerY)
-          : `M ${edge.source.x} ${edge.source.y} L ${edge.target.x} ${edge.target.y}`,
-      );
+      path.setAttribute("d", straightPath(edge));
       path.setAttribute(
         "stroke",
         edge.kind === "thread"

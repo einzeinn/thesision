@@ -17,6 +17,8 @@ services:
         value: /tmp/thesision
       - key: PROVIDER_TIMEOUT_SECONDS
         value: "60"
+      - key: PROVIDER_RETRY_ATTEMPTS
+        value: "3"
       - key: REASONING_TIMEOUT_SECONDS
         value: "180"
       - key: RATE_LIMIT_REQUESTS

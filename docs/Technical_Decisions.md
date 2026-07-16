@@ -288,6 +288,10 @@ model and `AIMLAPI_EVIDENCE_MODEL` controls the search-capable Evidence-stage
 model. Both use the same provider endpoint and API key; this is stage-specific
 model selection, not multi-provider reasoning.
 
+Transient provider failures (HTTP 429 and 5xx responses, or transport
+interruptions) are retried up to `PROVIDER_RETRY_ATTEMPTS` times before the
+reasoning session fails. Invalid requests are never retried.
+
 ---
 
 # Deferred Decisions

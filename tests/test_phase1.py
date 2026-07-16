@@ -114,6 +114,29 @@ def test_aimlapi_uses_its_openai_compatible_chat_endpoint(monkeypatch):
     assert calls[0][1]["json"]["model"] == "gpt-4o"
 
 
+def test_provider_retries_a_transient_503_before_returning_a_response(monkeypatch):
+    from src.backend.services.openai_client import ConfiguredReasoningClient
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+    responses = [Response(503), Response(200)]
+    calls = []
+    monkeypatch.setattr(
+        "src.backend.services.openai_client.httpx.post",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or responses.pop(0),
+    )
+    monkeypatch.setattr("src.backend.services.openai_client.time.sleep", lambda *_: None)
+
+    response = ConfiguredReasoningClient(api_key="test-key", provider="aimlapi")._post_with_retry(
+        "https://api.aimlapi.com/v1/chat/completions", {"model": "test"}
+    )
+
+    assert response.status_code == 200
+    assert len(calls) == 2
+
+
 def test_aimlapi_non_json_response_is_an_explicit_provider_error(monkeypatch):
     from src.backend.services.openai_client import ConfiguredReasoningClient, ReasoningProviderError
 
@@ -165,7 +188,7 @@ def test_aimlapi_grounded_evidence_uses_the_configured_search_model(monkeypatch)
 
         def json(self):
             return {
-                "choices": [{"message": {"content": '{"evidence":[{"claim":"Supported claim","source_title":"Invented","url":"https://example.com/source","quality":"high"}]}'}}],
+                "choices": [{"message": {"content": "Supported claim [1]"}}],
                 "citations": ["https://example.com/source"],
                 "search_results": [{"title": "Verified source", "url": "https://example.com/source"}],
             }
@@ -179,6 +202,29 @@ def test_aimlapi_grounded_evidence_uses_the_configured_search_model(monkeypatch)
     assert calls[0][1]["json"]["model"] == "perplexity/sonar"
     assert calls[0][1]["json"]["web_search_options"] == {"search_mode": "web"}
     assert result["evidence"][0]["source_title"] == "Verified source"
+    assert result["evidence"][0]["url"] == "https://example.com/source"
+    assert result["evidence"][0]["claim"] == "Supported claim"
+
+
+def test_aimlapi_grounded_evidence_uses_a_source_specific_search_snippet(monkeypatch):
+    from src.backend.services.openai_client import ConfiguredReasoningClient
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{"message": {"content": "Broad retrieved finding [1]"}}],
+                "search_results": [{"title": "Source focus", "url": "https://example.com/source", "snippet": "A source-specific finding."}],
+            }
+
+    monkeypatch.setattr("src.backend.services.openai_client.httpx.post", lambda *args, **kwargs: Response())
+    result = ConfiguredReasoningClient(api_key="test-key", provider="aimlapi").generate_json(
+        "Retrieve evidence", {"question": "Test"}, tools=[{"type": "web_search"}]
+    )
+
+    assert result["evidence"][0]["claim"] == "A source-specific finding."
 
 
 def test_aimlapi_evidence_fallback_returns_useful_unverified_considerations():
@@ -319,6 +365,39 @@ def test_markdown_export_tolerates_incomplete_agent_output():
     assert markdown_export.status_code == 200
     assert "No conclusion was generated." in markdown_export.text
     assert "Check the measurements." in markdown_export.text
+
+
+def test_deterministic_markdown_report_explains_only_canonical_artifacts():
+    from src.backend.services.output_generator import build_markdown_report
+    import json
+
+    session = {
+        "question": "Should we adopt retrieval?",
+        "state": {
+            "iteration": 1,
+            "confidence": {"score": 63, "evidence_quality": 60, "perspective_count": 3, "unresolved_conflicts": ["Cost remains uncertain."]},
+            "hypothesis": {"hypotheses": [{"claim": "Retrieval reduces prompt size.", "assumptions": ["Recall remains high."], "unknowns": ["Production cost."]}]},
+            "evidence": {"evidence": [{"claim": "Retrieval can reduce prompt size for repository tasks.", "source_title": "Engineering source", "url": "https://example.com/source", "quality": "medium"}]},
+            "perspectives": {"perspectives": [{"name": "performance", "analysis": "Latency must be measured.", "tradeoffs": ["operational complexity"]}]},
+            "judge": {"synthesis": "Measure before deciding.", "unresolved_conflicts": ["Cost remains uncertain."]},
+            "conclusion": {"conclusion": "Run a representative benchmark first.", "rationale": None, "caveats": ["Cost data is missing."], "next_steps": ["Benchmark representative repositories."]},
+        },
+    }
+
+    report = build_markdown_report(json.dumps(session))
+
+    assert "## Confidence" in report
+    assert "## Evidence Assessment" in report
+    assert "## Reasoning Trace" in report
+    assert "## Decision Would Change If" in report
+    assert "[Engineering source](https://example.com/source)" in report
+    assert "| # | Finding | Source focus | Strength |" in report
+    assert "**Why:** Measure before deciding." in report
+    assert "<details>" in report
+
+    session["state"]["judge"] = {}
+    fallback_report = build_markdown_report(json.dumps(session))
+    assert "**Why:** The session considered 1 evidence item(s) across 1 perspective(s) and recorded 0 unresolved conflict(s). Overall confidence is 63 / 100." in fallback_report
 
 
 def test_exports_reject_missing_or_incomplete_sessions():

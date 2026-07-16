@@ -19,49 +19,180 @@ def _text(value: Any, fallback: str) -> str:
     return value.strip() if isinstance(value, str) and value.strip() else fallback
 
 
+def _text_list(value: Any) -> list[str]:
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()] if isinstance(value, list) else []
+
+
+def _word_limit(value: Any, limit: int, fallback: str = "Unknown") -> str:
+    words = _text(value, fallback).split()
+    return " ".join(words[:limit]) + ("..." if len(words) > limit else "")
+
+
+def _markdown_source(item: dict[str, Any]) -> str:
+    source = _text(item.get("source_title"), "Unknown")
+    url = item.get("url")
+    return f"[{source}]({url})" if isinstance(url, str) and url.strip() else source
+
+
+def _claim_key(value: Any) -> str:
+    return " ".join(_text(value, "").lower().split())
+
+
+def _latest_node_data(state: dict[str, Any], node_type: str) -> dict[str, Any]:
+    for node in reversed(_records(state.get("nodes"))):
+        if node.get("type") == node_type:
+            return _mapping(node.get("data"))
+    return {}
+
+
+def _confidence_lines(confidence: dict[str, Any]) -> list[str]:
+    score = confidence.get("score")
+    quality = confidence.get("evidence_quality")
+    perspectives = confidence.get("perspective_count")
+    conflicts = _text_list(confidence.get("unresolved_conflicts"))
+    lines = [
+        f"**Overall Confidence:** {score} / 100" if isinstance(score, (int, float)) else "**Overall Confidence:** Unknown",
+        "",
+        "### Recorded Signals",
+    ]
+    if isinstance(quality, (int, float)):
+        lines.append(f"- **Average evidence quality:** {round(float(quality))} / 100")
+    if isinstance(perspectives, int):
+        lines.append(f"- **Recorded perspectives:** {perspectives}")
+    lines.append(f"- **Unresolved conflicts:** {len(conflicts)}")
+    lines.extend([
+        "",
+        "### Explanation",
+        "The canonical session stores the overall score and these supporting signals, but not a persisted component-score breakdown. The signals are context, not values that should be added together.",
+    ])
+    return lines
+
+
 def _deterministic_markdown(exported_session_json: str) -> str:
     """Keep exports available without asking a provider to reinterpret the session."""
     session = _mapping(json.loads(exported_session_json))
     state = _mapping(session.get("state"))
     confidence = _mapping(state.get("confidence"))
-    conclusion = _mapping(state.get("conclusion"))
+    conclusion = {**_latest_node_data(state, "conclusion"), **_mapping(state.get("conclusion"))}
     evidence = _records(_mapping(state.get("evidence")).get("evidence"))
     perspectives = _records(_mapping(state.get("perspectives")).get("perspectives"))
+    hypotheses = _records(_mapping(state.get("hypothesis")).get("hypotheses"))
+    judge = {**_latest_node_data(state, "judge"), **_mapping(state.get("judge"))}
+    conflicts = _text_list(judge.get("unresolved_conflicts") or judge.get("conflicts"))
+    assumptions = [entry for hypothesis in hypotheses for entry in _text_list(hypothesis.get("assumptions"))]
+    unknowns = [entry for hypothesis in hypotheses for entry in _text_list(hypothesis.get("unknowns"))]
+    caveats = _text_list(conclusion.get("caveats"))
+    next_steps = _text_list(conclusion.get("next_steps"))
+    validated_claims = _text_list(judge.get("validated_claims"))
+    judge_summary = _text(judge.get("synthesis"), validated_claims[0] if validated_claims else "No Judge synthesis was recorded.")
+    claim_counts: dict[str, int] = {}
+    first_evidence_for_claim: dict[str, int] = {}
+    for index, item in enumerate(evidence, start=1):
+        key = _claim_key(item.get("claim"))
+        if not key:
+            continue
+        claim_counts[key] = claim_counts.get(key, 0) + 1
+        first_evidence_for_claim.setdefault(key, index)
     lines = [
         "# Thesision Reasoning Report",
         "",
         "## Question",
         _text(session.get("question"), "No question recorded."),
         "",
-        "## Conclusion",
-        _text(conclusion.get("conclusion"), "No conclusion was generated."),
-        "",
         "## Confidence",
-        f"- Score: {confidence.get('score', 'Not evaluated')}%",
-        f"- Debate rounds: {state.get('iteration', 0)}",
+        *_confidence_lines(confidence),
+        f"\n**Debate rounds:** {state.get('iteration', 0)}",
     ]
-    if evidence:
-        lines.extend(["", "## Key Evidence"])
-        for item in evidence[:5]:
-            claim = _text(item.get("claim"), "Untitled evidence")
-            source = _text(item.get("source_title"), "Unspecified source")
-            url = item.get("url")
-            lines.append(f"- {claim} ([{source}]({url}))" if isinstance(url, str) and url else f"- {claim} ({source})")
+    lines.extend(["", "## Evidence Assessment"])
+    if not evidence:
+        lines.append("No evidence was recorded.")
+    else:
+        lines.extend([
+            "Each source is listed once. Per-item hypothesis links and confidence were not recorded in the canonical session.",
+            "",
+            "| # | Finding | Source focus | Strength |",
+            "| --- | --- | --- | --- |",
+        ])
+    for index, item in enumerate(evidence[:5], start=1):
+        claim_key = _claim_key(item.get("claim"))
+        repeated = claim_counts.get(claim_key, 0) > 1
+        first_index = first_evidence_for_claim.get(claim_key, index)
+        summary = (
+            _word_limit(item.get("claim"), 24, "No source summary was returned.")
+            if not repeated or index == first_index
+            else f"Same retrieved finding as Evidence #{first_index}."
+        )
+        lines.append(f"| {index} | {summary} | {_markdown_source(item)} | {_text(item.get('quality'), 'Not recorded')} |")
+    lines.extend(["", "## Reasoning Trace", f"1. **Question:** {_word_limit(session.get('question'), 28, 'Unknown')}"])
+    for index, hypothesis in enumerate(hypotheses[:3], start=1):
+        lines.append(f"2.{index}. **Hypothesis:** {_word_limit(hypothesis.get('claim'), 35, 'Unknown')}")
+    lines.append(f"3. **Evidence:** {len(evidence)} recorded item(s) were considered.")
     if perspectives:
-        lines.extend(["", "## Trade-offs"])
-        for item in perspectives[:3]:
-            lines.append(f"- {_text(item.get('name'), 'Perspective')}: {_text(item.get('analysis'), 'No analysis recorded.')}")
-    caveats = [item for item in conclusion.get("caveats", []) if isinstance(item, str) and item.strip()] if isinstance(conclusion.get("caveats"), list) else []
+        lines.append("4. **Perspectives:** " + ", ".join(_text(item.get("name"), "Unknown") for item in perspectives[:3]) + ".")
+    if conflicts:
+        lines.append("5. **Conflicts:** " + "; ".join(_word_limit(item, 24) for item in conflicts[:3]))
+    else:
+        lines.append("5. **Conflicts:** No unresolved conflicts were recorded by the Judge.")
+    lines.extend([
+        f"6. **Judge:** {_word_limit(judge_summary, 32, 'No Judge synthesis was recorded.')}",
+        "7. **Final conclusion:** See the recommendation below.",
+        "",
+        "## Trade-offs",
+    ])
+    if perspectives:
+        for item in perspectives[:5]:
+            tradeoffs = _text_list(item.get("tradeoffs"))
+            recorded_view = "; ".join(tradeoffs) if tradeoffs else _text(item.get("analysis"), "No recorded trade-off.")
+            lines.append(f"- **{_text(item.get('name'), 'Perspective')}:** {_word_limit(recorded_view, 32)}")
+    else:
+        lines.append("No perspectives were recorded.")
+    lines.extend(["", "## Caveats"])
     if caveats:
-        lines.extend(["", "## Caveats", *[f"- {item}" for item in caveats]])
-    next_steps = [item for item in conclusion.get("next_steps", []) if isinstance(item, str) and item.strip()] if isinstance(conclusion.get("next_steps"), list) else []
-    if next_steps:
-        lines.extend(["", "## Next Steps", *[f"- {item}" for item in next_steps]])
+        for caveat in caveats[:4]:
+            lines.append(f"- {_word_limit(caveat, 32)}")
+    else:
+        lines.append("No caveats were recorded.")
+    lines.extend(["", "## Decision Would Change If"])
+    conditions = [f"A key unknown resolves differently: {item}" for item in unknowns[:3]]
+    conditions += [f"An unresolved conflict resolves differently: {item}" for item in conflicts[:2]]
+    conditions += [f"A planned validation changes the result: {item}" for item in next_steps[:3]]
+    conditions += [f"A core assumption is disproved: {item}" for item in assumptions[:2]]
+    lines.extend([
+        "<details>",
+        f"<summary>{len(conditions)} key conditions — select to expand</summary>",
+        "",
+        *([f"- {item}" for item in conditions] or ["- No decision-change conditions were recorded."]),
+        "",
+        "</details>",
+    ])
+    recorded_rationale = _text(conclusion.get("rationale"), "")
+    recorded_judge_synthesis = _text(judge.get("synthesis"), "")
+    if recorded_rationale:
+        why = recorded_rationale
+    elif recorded_judge_synthesis:
+        why = recorded_judge_synthesis
+    elif validated_claims:
+        why = "; ".join(validated_claims)
+    else:
+        score = confidence.get("score")
+        confidence_context = f" Overall confidence is {score} / 100." if isinstance(score, (int, float)) else ""
+        why = (
+            f"The session considered {len(evidence)} evidence item(s) across {len(perspectives)} perspective(s) "
+            f"and recorded {len(conflicts)} unresolved conflict(s)." + confidence_context
+        )
+    lines.extend([
+        "",
+        "## Conclusion",
+        f"**Recommendation:** {_word_limit(conclusion.get('conclusion'), 50, 'No conclusion was generated.')}",
+        f"**Why:** {_word_limit(why, 42, 'No canonical rationale was recorded.')}",
+        "**Would change if:** See **Decision Would Change If** above.",
+    ])
     return "\n".join(lines) + "\n"
 
 
 def build_markdown_report(exported_session_json: str, compressed_markdown: str | None = None) -> str:
     """Return model-compressed Markdown, or a concise deterministic JSON-derived fallback."""
-    if isinstance(compressed_markdown, str) and compressed_markdown.strip():
+    required_sections = ("## Confidence", "## Evidence", "| # | Finding | Source focus | Strength |", "## Reasoning Trace", "## Caveats", "## Decision Would Change If", "<details>", "## Conclusion")
+    if isinstance(compressed_markdown, str) and compressed_markdown.strip() and all(section in compressed_markdown for section in required_sections):
         return compressed_markdown.strip() + "\n"
     return _deterministic_markdown(exported_session_json)
