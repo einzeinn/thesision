@@ -1,70 +1,167 @@
 # Thesision
 
-**Transparent, evidence-driven reasoning for engineering decisions — built reasoning-first, not chatbot-first.**
+> Reason Before Decision.
 
-Thesision is an AI reasoning platform that doesn't just answer engineering questions — it shows its work. Every conclusion comes with the hypotheses it considered, the evidence it pulled and rated, the debate it ran across multiple perspectives, an honest confidence score, and the exact conditions that would change its mind.
+<p align="center">
+  <img src="docs/preview/demo5.gif" width="900" alt="Thesision reasoning graph growing from question to conclusion" />
+</p>
 
-> Built for [OpenAI Hackathon submission] · [Devpost](https://openai.devpost.com/) · [Live demo](https://thesision.onrender.com)
+<p align="center">
+  <strong>Transparent, evidence-driven reasoning for engineering decisions.</strong><br />
+  Built reasoning-first, not chatbot-first.
+</p>
 
----
+<p align="center">
+  <a href="https://thesision.onrender.com">Live demo</a> ·
+  <a href="https://youtu.be/JvEz3fnC_HQ">Demo video</a> ·
+  <a href="https://github.com/einzeinn/thesision">Repository</a> ·
+  <a href="https://openai.devpost.com/">OpenAI Build Week</a>
+</p>
 
-## Why
+Thesision is a Developer Tools project for engineers who need to make technical
+decisions with incomplete evidence and competing constraints. Instead of
+returning one confident chat response, it exposes the hypotheses, evidence,
+perspectives, conflicts, confidence, and decision conditions behind a
+recommendation.
 
-Most AI chatbots answer engineering questions instantly and confidently — with no visible evidence, no stated uncertainty, and no way to know when the answer might be wrong. For decisions that shape a codebase or a team for months (architecture, tooling, trade-offs), that's not good enough.
+## Why It Matters
 
-Thesision treats a question as something to *reason through*, not autocomplete:
+Engineering decisions are expensive. Choosing the wrong architecture, platform,
+or infrastructure approach can cost months of engineering time.
 
-- Generates multiple competing hypotheses instead of committing to the first plausible answer
-- Pulls real evidence from the web and rates source strength
-- Runs multi-round internal debate across distinct perspectives (e.g. engineering velocity, debugging complexity, deployment risk)
-- Reports an honest confidence score instead of false certainty
-- States explicitly what would change the conclusion — a core assumption disproved, an unresolved conflict resolved, a key unknown answered
+Most AI tools generate answers. Thesision generates an inspectable reasoning
+record. It does not ask users to trust the model; it shows what supports a
+recommendation, what remains uncertain, and what would change the result.
 
-A completed session can be exported as JSON and re-imported to push the reasoning deeper — more debate rounds, more perspectives, more evidence — or handed off to another AI system entirely. Every conclusion also exports to a clean Markdown report for human review.
+## What It Does
 
-## Example Output
+- Generates competing engineering hypotheses rather than committing to the
+  first plausible answer.
+- Retrieves grounded web evidence with clickable provider-returned source URLs.
+- Examines maintainability, performance, and scalability perspectives.
+- Makes unresolved conflicts and missing decision inputs visible.
+- Produces a Judge synthesis and confidence score without hiding uncertainty.
+- Exports a concise Markdown decision report and a portable JSON session.
+- Replays, imports, and continues completed reasoning sessions.
 
-Reasoning unfolds live as an interactive graph, where each node is a step in the process:
+## How Thesision Works
 
-| Node | Meaning |
-| --- | --- |
-| `H` | Hypothesis |
-| `E` | Evidence |
-| `P` | Perspective |
-| `C` | Conflict |
-| `J` | Judge |
-| `✓` | Conclusion |
+```text
+Question
+  ↓
+Hypothesis Generation
+  ↓
+Grounded Evidence Retrieval
+  ↓
+Perspective Analysis
+  ↓
+Conflict Analysis
+  ↓
+Judge Synthesis
+  ↓
+Confidence Scoring
+  ↓
+Final Recommendation
+```
 
-The sidebar tracks progress in plain language as it happens — *Building hypothesis → Searching evidence → Evaluating perspectives → Resolving conflicts → Synthesizing conclusion* — alongside a live confidence bar and the evidence references the session pulled in, each linked back to its source.
+The orchestrator may run up to three debate rounds when confidence is
+insufficient or material conflicts remain. Each completed Judge result must
+include a comparative synthesis and an explanation of whether conflicts remain;
+incomplete Judge output is repaired once or fails explicitly rather than being
+shown as an empty result.
 
-Once complete, a session exports to:
+The frontend renders these artifacts as a deterministic constellation graph.
+Each question selects a stable layout template, so replay, imported sessions,
+and continued reasoning remain readable while the graph still feels organic.
 
-- **Markdown** — a structured report (confidence score, evidence table, reasoning trace, trade-offs, caveats, "decision would change if", final recommendation) for human review
-- **JSON** — the full session state, importable back into Thesision to continue reasoning, or into another AI system entirely
+## Example Question
 
-## Features
+```text
+Should an early-stage AI startup use Docker Compose, a managed container
+platform, or Kubernetes for production deployment before reaching
+product-market fit?
+```
 
-- **Live reasoning graph** — hypotheses, evidence, perspectives, conflicts, and the judge's synthesis render as a connected, animated graph as the session runs, not just a spinner
-- **Evidence retrieval & rating** — sources are pulled, deduplicated, linked, and rated by strength rather than presented as unverified fact
-- **Multi-perspective debate** — the same question is argued from multiple angles before a judge synthesizes a conclusion
-- **Honest confidence scoring** — a live confidence bar computed from evidence quality, unresolved conflicts, and perspective coverage, not asserted
-- **Engineering context input** — constraints, workload, and other project context can be supplied alongside the question to ground the reasoning
-- **Session import/export** — export a session as JSON to continue reasoning later, feed it to another AI system, or import a prior session back in
-- **Markdown export** — every session renders as a clean, human-readable report
+Thesision will generate multiple hypotheses, retrieve evidence, compare
+perspectives, surface conflicts, produce a confidence-scored recommendation,
+and export the result as Markdown or JSON.
 
 ## Architecture
 
-- **Backend:** FastAPI, orchestrator-first — every reasoning session is a structured, persisted state, not a black box
-- **Persistence:** SQLite-backed session storage
-- **Frontend:** lightweight reasoning workspace UI with a live SVG graph view of the reasoning process
-- **Design principle:** reasoning first, not chatbot-first — the system is built to add further orchestration stages (more debate strategies, more evidence sources) over time
+```text
+User Question
+    │
+    ▼
+FastAPI API and Session Store
+    │
+    ▼
+Reasoning Orchestrator
+    ├── Hypothesis Generator
+    ├── Evidence Retriever (grounded web search)
+    ├── Perspective Analyzer
+    ├── Judge and Conflict Analysis
+    ├── Confidence Evaluator
+    └── Conclusion Generator
+    │
+    ▼
+Interactive Graph · Markdown Report · JSON Session Export
+```
 
-## Getting Started
+## Tech Stack
+
+| Layer | Technology |
+| --- | --- |
+| Frontend | TypeScript, Vite, D3, anime.js, SVG |
+| Backend | Python, FastAPI, HTTPX |
+| Persistence | SQLite with JSON-backed session state |
+| Reasoning | GPT-5.6 Luna through AI/ML API |
+| Evidence | Perplexity Sonar web search through AI/ML API |
+| Deployment | Docker, Render |
+| Development | OpenAI Codex, GitHub |
+
+## How GPT-5.6 Was Used
+
+GPT-5.6 Luna is the structured reasoning engine, not a chatbot response
+generator. It is responsible for:
+
+- generating competing hypotheses and their assumptions;
+- analyzing engineering perspectives and trade-offs;
+- comparing artifacts in the Judge stage;
+- synthesizing conditional conclusions;
+- composing concise Markdown reports from canonical session data; and
+- supporting iterative Continue Reasoning sessions.
+
+The application orchestrates multiple GPT-5.6 stages with structured JSON
+artifacts instead of relying on one prompt. Perplexity Sonar is used only for
+the Evidence stage. Thesision accepts an evidence URL only when it was returned
+in Sonar search results or citations, preventing the reasoning model from
+presenting recalled URLs as grounded sources.
+
+## How Codex Was Used
+
+Codex was an implementation collaborator throughout the project. It
+accelerated:
+
+- orchestrator-first backend structure and regression tests;
+- TypeScript migration and modular frontend refactoring;
+- constellation graph layout, animation, sidebar, popup, replay, and session
+  continuation interactions;
+- RFC-driven design and architecture documentation;
+- Render deployment configuration and health checks;
+- Judge/Conflict output validation, source-grounding safeguards, and Markdown
+  report improvements; and
+- debugging, documentation, and final submission preparation.
+
+Human decisions remained responsible for the product direction, reasoning
+architecture, acceptance criteria, and final implementation choices.
+
+## Run Locally
 
 ### Prerequisites
 
 - Python 3.11+
-- Virtual environment support
+- Node.js 20+
+- An AI/ML API key for live reasoning
 
 ### Setup
 
@@ -72,53 +169,80 @@ Once complete, a session exports to:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+npm ci
 Copy-Item .env.example .env
 ```
 
-### Configure a provider
+Configure `.env` with one API key:
 
-Thesision needs one LLM provider configured in `.env` before it can reason. AI/ML API is supported via its OpenAI-compatible chat-completions endpoint:
-
-```powershell
-$env:AI_PROVIDER = "aimlapi"
-$env:AIMLAPI_API_KEY = "your-key"
-# Optional: $env:AIMLAPI_MODEL = "gpt-4o"
+```dotenv
+AI_PROVIDER=aimlapi
+AIMLAPI_API_KEY=your-key
+AIMLAPI_MODEL=openai/gpt-5.6-luna
+AIMLAPI_EVIDENCE_MODEL=perplexity/sonar
 ```
 
-### Run the backend
+Build and run:
 
 ```powershell
+npm run build:frontend
 uvicorn src.backend.app.main:app --reload
 ```
 
-### Run tests
+Open `http://127.0.0.1:8000`.
+
+### Verify
 
 ```powershell
-pytest -q
+.\.venv\Scripts\python.exe -m pytest -q
+npm run typecheck:frontend
+npm run build:frontend
 ```
 
-## Project Principles
+The test suite uses a fake model and does not spend API credits.
 
-- Reasoning first, not chatbot-first.
-- Secrets are provided via environment variables only — never committed.
-- The architecture stays modular and orchestrator-first, so new reasoning stages can be added without rewriting the core.
+## Deployment and Judge Testing
 
-## Project Status
+The public demo runs at [thesision.onrender.com](https://thesision.onrender.com).
+No login is required.
 
-Actively developed as a hackathon MVP. Current state: reasoning workspace, evidence rating, multi-perspective debate, confidence scoring, and Continue Reasoning are implemented and covered by a regression test suite (`pytest`). See `PHASE_REPORT.md` for the latest phase notes.
+1. Open the live demo. A free Render instance can take about a minute to wake.
+2. Enter an engineering decision question and select **Start Reasoning**.
+3. Inspect Evidence, Conflict, and Judge nodes; open an evidence source link.
+4. Export the completed session as Markdown or JSON.
+5. Optionally import the JSON and select **Continue Reasoning**.
+
+`render.yaml` defines the Docker deployment. Set `AIMLAPI_API_KEY` as the only
+secret when creating the Render Blueprint. Render free-tier storage is
+ephemeral, so JSON export/import provides a portable session backup.
+
+## Project Structure
+
+```text
+src/
+├── backend/
+│   ├── agents/          # Hypothesis, Evidence, Perspective, Judge, Conclusion
+│   ├── app/             # FastAPI routes and application entry point
+│   ├── orchestrator/    # Reasoning lifecycle coordination
+│   ├── services/        # Provider clients and export generation
+│   └── state/           # SQLite-backed session storage
+└── frontend/
+    └── app/             # TypeScript graph workspace and UI modules
+
+docs/                    # Product, architecture, RFCs, and demo guidance
+tests/                   # Backend and integration regression coverage
+```
 
 ## Roadmap
 
-- Additional evidence sources beyond web search
-- More debate/orchestration strategies
-- Session comparison (re-run the same question, diff the reasoning)
-- Public demo deployment
+- Broader evidence-source coverage and stronger source diversity
+- Confidence calibration from richer recorded signals
+- PDF and paper ingestion
+- Local knowledge-base support
+- Collaborative reasoning sessions and decision history
+- Graph comparison across related sessions
 
 ## License
 
-_Not yet specified — add a `LICENSE` file (MIT is a common default for hackathon projects) before making the repo public-facing for judging, so reviewers know how they're allowed to use the code._
-
-## Links
-
-- Repository: [github.com/einzeinn/thesision](https://github.com/einzeinn/thesision)
-- Devpost: [openai.devpost.com](https://openai.devpost.com/)
+License selection is pending. Add a license file before any use beyond hackathon
+evaluation.
