@@ -166,6 +166,12 @@
 - Rendered the canonical confidence score as a compact visual bar and percentage.
 - Added evidence-quality, unresolved-conflict, and perspective-coverage status signals without changing the confidence calculation.
 
+### 2026-07-18 - RFC-019 and RFC-020 Responsive Graph Continuity
+
+- Added a narrow-screen single-column workspace with an expandable input panel, graph viewport, and normal-flow evidence/output panel.
+- Changed graph polling updates to retain existing SVG artifacts, preventing prior nodes and links from blinking or replaying when a new stage arrives.
+- Added soft viewport follow for newly revealed off-screen primary nodes while preserving manual pan, zoom, replay, and reduced-motion behavior.
+
 ## Log Format
 
 Future executions should add a new dated section with:

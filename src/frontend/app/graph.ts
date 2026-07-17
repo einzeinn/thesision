@@ -319,6 +319,14 @@ interface PositionedEdge extends Omit<GraphEdge, "source" | "target"> {
   target: PositionedNode;
 }
 export function createGraphRenderer(options: GraphRendererOptions) {
+  type Viewport = { x: number; y: number; width: number; height: number };
+  let svg: SVGSVGElement | null = null;
+  let viewport: Viewport | null = null;
+  let baseWidth = 0;
+  let baseHeight = 0;
+  let manualFollowUntil = 0;
+  let cameraFrame: number | null = null;
+
   const straightPath = (edge: PositionedEdge) =>
     `M ${edge.source.x} ${edge.source.y} L ${edge.target.x} ${edge.target.y}`;
   const finishEdge = (edge: SVGPathElement) => {
@@ -327,44 +335,53 @@ export function createGraphRenderer(options: GraphRendererOptions) {
     if (edge.dataset.thread === "true")
       edge.setAttribute("stroke-dasharray", "4 4");
   };
-  const enableViewportControls = (
-    svg: SVGSVGElement,
-    width: number,
-    height: number,
-  ) => {
-    let view = { x: 0, y: 0, width, height };
+  const applyViewport = () => {
+    if (!svg || !viewport) return;
+    svg.setAttribute("viewBox", [viewport.x, viewport.y, viewport.width, viewport.height].join(" "));
+  };
+  const pauseFollow = () => {
+    manualFollowUntil = Date.now() + 2400;
+    if (cameraFrame !== null) {
+      cancelAnimationFrame(cameraFrame);
+      cameraFrame = null;
+    }
+  };
+  const enableViewportControls = (canvas: SVGSVGElement) => {
     let drag: { x: number; y: number; viewX: number; viewY: number } | null = null;
-    const applyView = () =>
-      svg.setAttribute("viewBox", [view.x, view.y, view.width, view.height].join(" "));
-    svg.addEventListener("wheel", (event) => {
+    canvas.addEventListener("wheel", (event) => {
+      if (!viewport || !baseWidth || !baseHeight) return;
       event.preventDefault();
-      const box = svg.getBoundingClientRect();
-      const pointerX = view.x + (event.clientX - box.left) * (view.width / box.width);
-      const pointerY = view.y + (event.clientY - box.top) * (view.height / box.height);
+      pauseFollow();
+      const box = canvas.getBoundingClientRect();
+      const pointerX = viewport.x + (event.clientX - box.left) * (viewport.width / box.width);
+      const pointerY = viewport.y + (event.clientY - box.top) * (viewport.height / box.height);
       const factor = event.deltaY > 0 ? 1.12 : 0.88;
-      const nextWidth = Math.max(width * 0.45, Math.min(width * 2.5, view.width * factor));
-      const nextHeight = nextWidth * (height / width);
-      view = { x: pointerX - ((pointerX - view.x) * nextWidth) / view.width, y: pointerY - ((pointerY - view.y) * nextHeight) / view.height, width: nextWidth, height: nextHeight };
-      applyView();
+      const nextWidth = Math.max(baseWidth * 0.45, Math.min(baseWidth * 2.5, viewport.width * factor));
+      const nextHeight = nextWidth * (baseHeight / baseWidth);
+      viewport.x = pointerX - ((pointerX - viewport.x) * nextWidth) / viewport.width;
+      viewport.y = pointerY - ((pointerY - viewport.y) * nextHeight) / viewport.height;
+      viewport.width = nextWidth;
+      viewport.height = nextHeight;
+      applyViewport();
     }, { passive: false });
-    svg.addEventListener("pointerdown", (event) => {
-      if (event.target !== svg) return;
-      drag = { x: event.clientX, y: event.clientY, viewX: view.x, viewY: view.y };
-      svg.setPointerCapture(event.pointerId);
+    canvas.addEventListener("pointerdown", (event) => {
+      if (event.target !== canvas || !viewport) return;
+      pauseFollow();
+      drag = { x: event.clientX, y: event.clientY, viewX: viewport.x, viewY: viewport.y };
+      canvas.setPointerCapture(event.pointerId);
     });
-    svg.addEventListener("pointermove", (event) => {
-      if (!drag) return;
-      const box = svg.getBoundingClientRect();
-      view.x = drag.viewX - (event.clientX - drag.x) * (view.width / box.width);
-      view.y = drag.viewY - (event.clientY - drag.y) * (view.height / box.height);
-      applyView();
+    canvas.addEventListener("pointermove", (event) => {
+      if (!drag || !viewport) return;
+      const box = canvas.getBoundingClientRect();
+      viewport.x = drag.viewX - (event.clientX - drag.x) * (viewport.width / box.width);
+      viewport.y = drag.viewY - (event.clientY - drag.y) * (viewport.height / box.height);
+      applyViewport();
     });
-    svg.addEventListener("pointerup", () => { drag = null; });
+    canvas.addEventListener("pointerup", () => { drag = null; });
   };
   const animate = (
     items: Array<{ node: PositionedNode; visual: SVGGElement }>,
     edges: SVGPathElement[],
-    incoming: Set<string>,
     replay = options.graph.dataset.replay === "true",
   ) => {
     const anime = window.anime;
@@ -391,22 +408,15 @@ export function createGraphRenderer(options: GraphRendererOptions) {
           finishEdge(target as SVGPathElement),
         ),
     });
-    const next = items.filter(({ node }) => incoming.has(node.id));
-    items
-      .filter(({ node }) => !incoming.has(node.id))
-      .forEach(({ visual }) => {
-        visual.style.opacity = "1";
-        visual.style.transform = "scale(1)";
-      });
     anime({
-      targets: next.map(({ visual }) => visual),
+      targets: items.map(({ visual }) => visual),
       opacity: [0, 1],
       scale: [0.8, 1],
       duration: nodeDuration,
       easing: "easeOutQuad",
       delay: anime.stagger(nodeStagger),
     });
-    next.forEach(({ node }, index) =>
+    items.forEach(({ node }, index) =>
       options.onAutoPopup(
         node,
         nodeDuration + index * nodeStagger,
@@ -414,18 +424,62 @@ export function createGraphRenderer(options: GraphRendererOptions) {
       ),
     );
   };
-  const render = (data: GraphData, incoming: Set<string>) => {
+  const resetCanvas = (width: number, height: number) => {
+    options.onClose();
     options.popup.hidden = true;
     options.popup.replaceChildren();
-    options.graph.replaceChildren();
-    options.graph.append(options.popup);
+    options.graph.querySelectorAll(".auto-popup").forEach((popup) => popup.remove());
+    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    viewport = { x: 0, y: 0, width, height };
+    baseWidth = width;
+    baseHeight = height;
+    applyViewport();
+    const edgeLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    edgeLayer.classList.add("edge-layer");
+    const nodeLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    nodeLayer.classList.add("node-layer");
+    svg.append(edgeLayer, nodeLayer);
+    options.graph.replaceChildren(svg, options.popup);
+    enableViewportControls(svg);
+    svg.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element) || !event.target.closest(".graph-node")) options.onClose();
+    });
+  };
+  const followIncomingPrimary = (nodes: PositionedNode[], canvas: SVGSVGElement) => {
+    const target = nodes.find((node) => node.type !== "satellite");
+    if (!target || !viewport || options.reducedMotion() || Date.now() < manualFollowUntil) return;
+    const marginX = viewport.width * 0.2;
+    const marginY = viewport.height * 0.2;
+    const visible = target.x >= viewport.x + marginX && target.x <= viewport.x + viewport.width - marginX && target.y >= viewport.y + marginY && target.y <= viewport.y + viewport.height - marginY;
+    if (visible) return;
+    const nextX = target.x - viewport.width / 2;
+    const nextY = target.y - viewport.height / 2;
+    if (cameraFrame !== null) cancelAnimationFrame(cameraFrame);
+    const initialX = viewport.x;
+    const initialY = viewport.y;
+    const startedAt = performance.now();
+    const step = (now: number) => {
+      if (!viewport || svg !== canvas) return;
+      const progress = Math.min(1, (now - startedAt) / 320);
+      const eased = progress < 0.5 ? 2 * progress * progress : 1 - ((-2 * progress + 2) ** 2) / 2;
+      viewport.x = initialX + (nextX - initialX) * eased;
+      viewport.y = initialY + (nextY - initialY) * eased;
+      applyViewport();
+      cameraFrame = progress < 1 ? requestAnimationFrame(step) : null;
+    };
+    cameraFrame = requestAnimationFrame(step);
+  };
+  const render = (data: GraphData, incoming: Set<string>, reset = false) => {
     const width = options.graph.clientWidth || 700;
     const height = options.graph.clientHeight || 590;
+    const needsReset = reset || !svg || !options.graph.contains(svg);
+    if (needsReset) resetCanvas(width, height);
+    if (!svg) return;
+    const canvas = svg;
+    const edgeLayer = canvas.querySelector<SVGGElement>(".edge-layer");
+    const nodeLayer = canvas.querySelector<SVGGElement>(".node-layer");
+    if (!edgeLayer || !nodeLayer) return;
     const centerY = height / 2;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    options.graph.prepend(svg);
-    enableViewportControls(svg, width, height);
     // A stable template makes replay and imported sessions readable and repeatable.
     const rounds = Math.max(1, data.rounds);
     const horizontalPadding = 54;
@@ -518,108 +572,86 @@ export function createGraphRenderer(options: GraphRendererOptions) {
       return source && target ? [{ ...edge, source, target }] : [];
     });
     options.onNodes(nodes);
-    const edges = links.map((edge) => {
-      const path = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "path",
-      );
-      path.classList.add("edge", edge.kind);
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    const edgeId = (edge: PositionedEdge) => `${edge.kind}:${edge.source.id}->${edge.target.id}`;
+    const currentEdges = new Map(Array.from(edgeLayer.querySelectorAll<SVGPathElement>("path.edge")).map((path) => [path.dataset.edgeId || "", path]));
+    const currentNodes = new Map(Array.from(nodeLayer.querySelectorAll<SVGGElement>(".graph-node")).map((group) => [group.dataset.nodeId || "", group]));
+    currentNodes.forEach((group, id) => { if (!nodeIds.has(id)) group.remove(); });
+    const linkIds = new Set(links.map(edgeId));
+    currentEdges.forEach((path, id) => { if (!linkIds.has(id)) path.remove(); });
+    const newEdges: SVGPathElement[] = [];
+    links.forEach((edge) => {
+      const id = edgeId(edge);
+      let path = currentEdges.get(id);
+      const isNew = !path;
+      if (!path) {
+        path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.classList.add("edge", edge.kind);
+        path.dataset.edgeId = id;
+        edgeLayer.append(path);
+      }
       path.setAttribute("d", straightPath(edge));
-      path.setAttribute(
-        "stroke",
-        edge.kind === "thread"
-          ? "#8e8b84"
-          : colors[
-              edge.target.type === "satellite"
-                ? edge.target.parentType
-                : edge.target.type
-            ],
-      );
-      svg.append(path);
+      path.setAttribute("stroke", edge.kind === "thread" ? "#8e8b84" : colors[edge.target.type === "satellite" ? edge.target.parentType : edge.target.type]);
       const length = path.getTotalLength();
       path.dataset.length = String(length);
       path.dataset.thread = String(edge.kind === "thread");
-      path.setAttribute("stroke-dasharray", `${length} ${length}`);
-      path.setAttribute("stroke-dashoffset", String(length));
-      path.style.opacity = edge.kind === "satellite" ? ".35" : ".45";
-      return path;
+      if (isNew) {
+        path.setAttribute("stroke-dasharray", `${length} ${length}`);
+        path.setAttribute("stroke-dashoffset", String(length));
+        path.style.opacity = edge.kind === "satellite" ? ".35" : ".45";
+        newEdges.push(path);
+      }
     });
-    const items = nodes.map((node) => {
-      const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      group.classList.add(
-        "graph-node",
-        node.type === "satellite" ? "satellite" : node.type,
-      );
+    const newItems: Array<{ node: PositionedNode; visual: SVGGElement }> = [];
+    nodes.forEach((node) => {
+      let group = currentNodes.get(node.id);
+      const isNew = !group;
+      if (!group) {
+        group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        group.classList.add("graph-node", node.type === "satellite" ? "satellite" : node.type);
+        group.dataset.nodeId = node.id;
+        group.tabIndex = 0;
+        group.setAttribute("role", "button");
+        const visual = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        visual.classList.add("node-visual");
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("r", String(nodeRadius(node)));
+        circle.setAttribute("stroke", colors[node.type === "satellite" ? node.parentType : node.type]);
+        const marker = nodeMarker(node);
+        if (marker) {
+          const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          text.classList.add("node-marker");
+          text.setAttribute("text-anchor", "middle");
+          text.setAttribute("dominant-baseline", "central");
+          text.textContent = marker;
+          visual.append(circle, text);
+        } else visual.append(circle);
+        group.append(visual);
+        const show = () => options.onShow(node, group!);
+        group.addEventListener("click", (event) => { event.stopPropagation(); show(); });
+        group.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); show(); }
+        });
+        group.addEventListener("pointerenter", () => {
+          if (window.matchMedia("(pointer: fine)").matches && !group!.classList.contains("selected")) options.onPreview(node, group!);
+        });
+        group.addEventListener("pointerleave", () => options.onRemovePreview(group!));
+        nodeLayer.append(group);
+      }
       group.setAttribute("transform", `translate(${node.x},${node.y})`);
-      group.tabIndex = 0;
-      group.setAttribute("role", "button");
-      group.setAttribute(
-        "aria-label",
-        `${nodeTitle(node)}: ${nodeSummary(node)}`,
-      );
-      const visual = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "g",
-      );
-      visual.classList.add("node-visual");
-      const circle = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "circle",
-      );
-      circle.setAttribute("r", String(nodeRadius(node)));
-      circle.setAttribute(
-        "stroke",
-        colors[node.type === "satellite" ? node.parentType : node.type],
-      );
-      const marker = nodeMarker(node);
-      if (marker) {
-        const text = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "text",
-        );
-        text.classList.add("node-marker");
-        text.setAttribute("text-anchor", "middle");
-        text.setAttribute("dominant-baseline", "central");
-        text.textContent = marker;
-        visual.append(circle, text);
-      } else visual.append(circle);
-      group.append(visual);
-      const show = () => options.onShow(node, group);
-      group.addEventListener("click", (event) => {
-        event.stopPropagation();
-        show();
-      });
-      group.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          show();
-        }
-      });
-      group.addEventListener("pointerenter", () => {
-        if (
-          window.matchMedia("(pointer: fine)").matches &&
-          !group.classList.contains("selected")
-        )
-          options.onPreview(node, group);
-      });
-      group.addEventListener("pointerleave", () =>
-        options.onRemovePreview(group),
-      );
-      svg.append(group);
-      return { node, group, visual };
+      group.setAttribute("aria-label", `${nodeTitle(node)}: ${nodeSummary(node)}`);
+      const visual = group.querySelector<SVGGElement>(".node-visual");
+      if (isNew && visual) newItems.push({ node, visual });
     });
-    svg.addEventListener("click", (event) => {
-      if (
-        !(event.target instanceof Element) ||
-        !event.target.closest(".graph-node")
-      )
-        options.onClose();
-    });
-    animate(items, edges, incoming);
+    animate(newItems, newEdges, options.graph.dataset.replay === "true");
+    if (!needsReset)
+      window.setTimeout(() => followIncomingPrimary(newItems.map((item) => item.node), canvas), 120);
   };
   return {
     render,
     renderPendingQuestion: (question = "") => {
+      svg = null;
+      viewport = null;
       const width = options.graph.clientWidth || 700;
       const height = options.graph.clientHeight || 590;
       options.graph.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Question node waiting for reasoning"><g class="graph-node question" transform="translate(${width / 2},${height / 2})"><circle r="24" stroke="${colors.question}"></circle><text x="0" y="-35" text-anchor="middle">QUESTION</text><text x="0" y="42" text-anchor="middle">${question ? question.slice(0, 38) : "waiting for input"}</text></g></svg>`;

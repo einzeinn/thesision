@@ -167,13 +167,14 @@ Connections should grow instead of appearing instantly:
 
 - Nodes fade and scale in with a staggered delay (small, incremental delay per node — not simultaneous). The scale animation must target an inner SVG group, never the outer group whose transform stores the node's settled position.
 - Links fade in independently, staggered slightly ahead of or alongside the nodes they connect.
+- Incremental stage updates retain already rendered nodes and links; existing artifacts must not blink or replay when new artifacts appear.
 - On mount, the simulation should already be settled (run enough ticks server-side or synchronously before first paint) so nodes don't visibly jitter into place — only the fade/stagger reveal should be visible, not the physics settling.
 - The Question is the first revealed root node, positioned by the selected
   constellation template rather than fixed to one screen side. Incremental
   updates retain settled positions for existing nodes.
 - Edges are straight line segments between constellation nodes. Users can
   drag the background to pan and use the mouse wheel to zoom without moving
-  graph nodes.
+  graph nodes. The viewport may softly pan to a newly revealed primary node only when it falls outside the visible safe area; manual pan or zoom always takes precedence.
 
 ---
 
@@ -386,9 +387,13 @@ format.
 
 Desktop is the primary target.
 
-Tablet support is optional.
-
-Mobile support belongs to future versions.
+Tablet and mobile support preserve the same reasoning workspace in a compact
+single-column arrangement. On narrow screens, the input sidebar appears above
+the graph, the graph remains the primary fixed-height interaction surface, and
+the evidence/output panel follows below it. The desktop sticky side panels
+become normal-flow panels, while the graph retains its own pan and zoom
+viewport. Header controls may wrap and the legend may scroll horizontally;
+neither the page nor the controls may require a desktop minimum width.
 
 ---
 
