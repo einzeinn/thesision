@@ -172,6 +172,11 @@
 - Changed graph polling updates to retain existing SVG artifacts, preventing prior nodes and links from blinking or replaying when a new stage arrives.
 - Added soft viewport follow for newly revealed off-screen primary nodes while preserving manual pan, zoom, replay, and reduced-motion behavior.
 
+### 2026-07-18 - RFC-021 Cumulative Debate Rounds
+
+- Passed prior Judge feedback and bounded evidence history into later Hypothesis and Evidence rounds, including continued sessions.
+- Required refinement searches to target unresolved gaps and filtered previously used evidence URLs from later results.
+
 ## Log Format
 
 Future executions should add a new dated section with:

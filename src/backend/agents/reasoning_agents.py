@@ -4,27 +4,77 @@ from src.backend.services.openai_client import LanguageModel, ReasoningProviderE
 
 
 class HypothesisGenerator:
-    def run(self, model: LanguageModel, question: str, context: str) -> dict[str, Any]:
+    def run(
+        self,
+        model: LanguageModel,
+        question: str,
+        context: str,
+        prior_round: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        refinement_context = prior_round or {}
+        is_refinement = bool(refinement_context)
         return model.generate_json(
-            "Generate engineering hypotheses. Return JSON with hypotheses (list of {claim, assumptions, unknowns}). Do not make a final recommendation.",
-            {"question": question, "context": context},
+            (
+                "Generate engineering hypotheses. Return JSON with hypotheses (list of {claim, assumptions, unknowns}). "
+                "Do not make a final recommendation. "
+                + (
+                    "This is a refinement round. Use the prior Judge and evidence history to test unresolved conflicts, "
+                    "missing evidence, or weak assumptions. Do not merely restate an unchanged earlier hypothesis."
+                    if is_refinement
+                    else "This is the initial reasoning round."
+                )
+            ),
+            {
+                "question": question,
+                "context": context,
+                **({"prior_round": refinement_context} if is_refinement else {}),
+            },
         )
 
 
 class EvidenceRetriever:
-    def run(self, model: LanguageModel, question: str, hypotheses: dict[str, Any]) -> dict[str, Any]:
+    def run(
+        self,
+        model: LanguageModel,
+        question: str,
+        hypotheses: dict[str, Any],
+        prior_round: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        refinement_context = prior_round or {}
+        is_refinement = bool(refinement_context)
         try:
-            return model.generate_json(
-                "Use the web search tool to retrieve sources for the engineering hypotheses; do not rely on recalled citations. Return JSON with evidence (list of {claim, source_title, url, relevance, quality}). Include a URL only when it was returned by the web search tool and directly supports the attached claim. If no relevant result exists, return an item with url null, source_title 'No verified web source found', and relevance and quality 'unverified'. Never invent a source, title, or URL.",
-                {"question": question, "hypotheses": hypotheses},
+            result = model.generate_json(
+                (
+                    "Use the web search tool to retrieve sources for the engineering hypotheses; do not rely on recalled citations. "
+                    "Return JSON with evidence (list of {claim, source_title, url, relevance, quality}). Include a URL only when it "
+                    "was returned by the web search tool and directly supports the attached claim. If no relevant result exists, return an "
+                    "item with url null, source_title 'No verified web source found', and relevance and quality 'unverified'. Never invent "
+                    "a source, title, or URL. "
+                    + (
+                        "This is a refinement round: target the prior Judge's unresolved conflicts or evidence gaps, and do not return a URL "
+                        "already present in previous_evidence unless it supplies a materially distinct finding."
+                        if is_refinement
+                        else ""
+                    )
+                ),
+                {
+                    "question": question,
+                    "hypotheses": hypotheses,
+                    **({"prior_round": refinement_context} if is_refinement else {}),
+                },
                 tools=[{"type": "web_search"}],
             )
+            return self._exclude_previously_seen_urls(result, refinement_context)
         except ReasoningProviderError as error:
             if getattr(model, "provider", None) != "aimlapi" and "hosted web search" not in str(error):
                 raise
             considerations = model.generate_json(
                 "The configured provider cannot browse the web. Generate 3 to 5 concrete engineering considerations that follow from the question and hypotheses, covering measurable risks, constraints, or validation steps. Return JSON with evidence (list of {claim}). Do not cite, name, or imply any external source. These are unverified model-derived considerations, not web evidence.",
-                {"question": question, "hypotheses": hypotheses},
+                {
+                    "question": question,
+                    "hypotheses": hypotheses,
+                    **({"prior_round": refinement_context} if is_refinement else {}),
+                },
             )
             items = considerations.get("evidence", []) if isinstance(considerations, dict) else []
             normalized = []
@@ -46,6 +96,42 @@ class EvidenceRetriever:
                 "relevance": "unverified",
                 "quality": "unverified",
             }]}
+
+    @staticmethod
+    def _exclude_previously_seen_urls(
+        result: dict[str, Any], prior_round: dict[str, Any],
+    ) -> dict[str, Any]:
+        history = prior_round.get("previous_evidence")
+        if not isinstance(history, list):
+            return result
+        known_urls = {
+            item["url"].rstrip("/")
+            for item in history
+            if isinstance(item, dict) and isinstance(item.get("url"), str) and item["url"].strip()
+        }
+        if not known_urls or not isinstance(result.get("evidence"), list):
+            return result
+        fresh = [
+            item
+            for item in result["evidence"]
+            if not isinstance(item, dict)
+            or not isinstance(item.get("url"), str)
+            or item["url"].rstrip("/") not in known_urls
+        ]
+        if fresh:
+            return {**result, "evidence": fresh}
+        return {
+            **result,
+            "evidence": [
+                {
+                    "claim": "No new verified web source was returned beyond sources already considered.",
+                    "source_title": "No new verified web source found",
+                    "url": None,
+                    "relevance": "unverified",
+                    "quality": "unverified",
+                }
+            ],
+        }
 
 
 class PerspectiveAnalyzer:

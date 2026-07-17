@@ -86,6 +86,10 @@ Responsibilities
 - Manage confidence score
 - Decide when reasoning stops
 
+For later debate rounds, the Orchestrator supplies the previous Judge result
+and bounded evidence history to the Hypothesis and Evidence agents. This keeps
+rounds cumulative while preserving the same public session format.
+
 The Orchestrator is the only component allowed to communicate with every reasoning agent.
 
 ---

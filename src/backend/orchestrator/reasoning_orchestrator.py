@@ -46,8 +46,9 @@ class ReasoningOrchestrator:
                 if time.monotonic() >= deadline:
                     raise ReasoningProviderError("Reasoning session timed out before completion.")
                 state["iteration"] = iteration
-                self._run_stage(session["session_id"], state, "hypothesis", self.hypotheses.run, session["question"], context)
-                self._run_stage(session["session_id"], state, "evidence", self.evidence.run, session["question"], state["hypothesis"])
+                prior_round = self._prior_round_context(state)
+                self._run_stage(session["session_id"], state, "hypothesis", self.hypotheses.run, session["question"], context, prior_round)
+                self._run_stage(session["session_id"], state, "evidence", self.evidence.run, session["question"], state["hypothesis"], prior_round)
                 self._run_stage(session["session_id"], state, "perspectives", self.perspectives.run, session["question"], state["evidence"])
                 self._run_stage(session["session_id"], state, "judge", self.judge.run, self._reasoning_snapshot(state))
                 confidence = self._evaluate_confidence(state)
@@ -137,3 +138,39 @@ class ReasoningOrchestrator:
     @staticmethod
     def _reasoning_snapshot(state: dict[str, Any]) -> dict[str, Any]:
         return {key: state.get(key) for key in ("hypothesis", "evidence", "perspectives", "judge", "confidence")}
+
+    @staticmethod
+    def _prior_round_context(state: dict[str, Any]) -> dict[str, Any] | None:
+        """Keep later rounds focused on persisted gaps without changing session data."""
+        judge = state.get("judge")
+        if not isinstance(judge, dict):
+            return None
+        evidence_history: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for node in state.get("nodes", []):
+            if not isinstance(node, dict) or node.get("type") != "evidence":
+                continue
+            data = node.get("data")
+            if not isinstance(data, dict):
+                continue
+            for item in data.get("evidence", []):
+                if not isinstance(item, dict):
+                    continue
+                url = item.get("url") if isinstance(item.get("url"), str) else ""
+                claim = item.get("claim") if isinstance(item.get("claim"), str) else ""
+                key = (url.strip(), claim.strip())
+                if key in seen or not any(key):
+                    continue
+                seen.add(key)
+                evidence_history.append(
+                    {
+                        key: item[key]
+                        for key in ("claim", "source_title", "url", "quality")
+                        if isinstance(item.get(key), (str, int, float))
+                    }
+                )
+        return {
+            "judge": judge,
+            "confidence": state.get("confidence") if isinstance(state.get("confidence"), dict) else {},
+            "previous_evidence": evidence_history[-20:],
+        }
