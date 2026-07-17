@@ -90,6 +90,10 @@ For later debate rounds, the Orchestrator supplies the previous Judge result
 and bounded evidence history to the Hypothesis and Evidence agents. This keeps
 rounds cumulative while preserving the same public session format.
 
+Confidence evaluation likewise reads unique Evidence and Perspective artifacts
+from completed graph nodes across all rounds. It retains only the latest
+Judge's unresolved conflicts, because later rounds may resolve earlier gaps.
+
 The Orchestrator is the only component allowed to communicate with every reasoning agent.
 
 ---

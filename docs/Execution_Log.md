@@ -147,7 +147,7 @@
 ### 2026-07-17 - RFC-015 Concise Canonical Reports
 
 - Replaced misleading reconstructed confidence components with the persisted score and recorded signals only.
-- Condensed evidence into a five-row source table, trade-offs/caveats into bounded excerpts, and decision conditions into at most eight prioritized expandable items.
+- Condensed evidence into a bounded source table, trade-offs/caveats into bounded excerpts, and decision conditions into at most eight prioritized expandable items.
 - Added latest Judge-node fallbacks for report trace and conclusion rationale.
 
 ### 2026-07-17 - RFC-016 Variable Constellation and Why Fallback
@@ -176,6 +176,14 @@
 
 - Passed prior Judge feedback and bounded evidence history into later Hypothesis and Evidence rounds, including continued sessions.
 - Required refinement searches to target unresolved gaps and filtered previously used evidence URLs from later results.
+
+### 2026-07-18 - RFC-022 Cumulative Evidence Reporting
+
+- Made report evidence and confidence signals aggregate unique canonical graph
+  artifacts across completed rounds, with a backwards-compatible fallback for
+  older imports.
+- Kept unresolved-conflict evaluation scoped to the latest Judge so resolved
+  historical conflicts do not permanently penalize a session.
 
 ## Log Format
 
