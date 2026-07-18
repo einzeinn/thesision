@@ -78,6 +78,90 @@ def test_run_pipeline_advances_stage_and_persists_state():
     assert all("round" in node for node in state["nodes"])
 
 
+def test_later_rounds_receive_judge_feedback_and_evidence_history():
+    class RefinementAwareModel:
+        def __init__(self):
+            self.hypothesis_payloads = []
+            self.evidence_payloads = []
+            self.judge_calls = 0
+
+        def generate_json(self, instruction, payload, *, tools=None):
+            if instruction.startswith("Generate engineering hypotheses"):
+                self.hypothesis_payloads.append(payload)
+                return {"hypotheses": [{"claim": "Measure the unresolved operational risk.", "assumptions": [], "unknowns": []}]}
+            if tools == [{"type": "web_search"}]:
+                self.evidence_payloads.append(payload)
+                source_number = len(self.evidence_payloads)
+                return {"evidence": [{"claim": f"Evidence round {source_number}.", "source_title": f"Source {source_number}", "url": f"https://example.com/source-{source_number}", "relevance": "high", "quality": "high"}]}
+            if instruction.startswith("Analyze the engineering"):
+                return {"perspectives": [{"name": "maintainability", "analysis": "Measure the operational burden.", "tradeoffs": []}, {"name": "performance", "analysis": "Measure latency.", "tradeoffs": []}, {"name": "scalability", "analysis": "Measure growth constraints.", "tradeoffs": []}]}
+            if instruction.startswith("Judge"):
+                self.judge_calls += 1
+                conflicts = ["Rollback time remains unmeasured."] if self.judge_calls == 1 else []
+                return {"validated_claims": ["Measure before deciding."], "conflicts": conflicts, "unresolved_conflicts": conflicts, "conflict_summary": "Rollback time requires targeted validation." if conflicts else "No material conflict remains after targeted validation.", "synthesis": "Gather rollback evidence before choosing a platform."}
+            return {"conclusion": "Measure before changing platforms.", "rationale": "The targeted evidence resolved the recorded gap.", "caveats": [], "next_steps": []}
+
+    model = RefinementAwareModel()
+    app.state.orchestrator = ReasoningOrchestrator(model, maximum_iterations=2)
+    created = client.post("/api/sessions", json={"question": "Should we change deployment platforms?"}).json()
+
+    response = client.post(f"/api/sessions/{created['session_id']}/run")
+
+    assert response.status_code == 200
+    assert len(model.hypothesis_payloads) == 2
+    assert "prior_round" not in model.hypothesis_payloads[0]
+    second_hypothesis_context = model.hypothesis_payloads[1]["prior_round"]
+    assert second_hypothesis_context["judge"]["unresolved_conflicts"] == ["Rollback time remains unmeasured."]
+    assert second_hypothesis_context["refinement_target"] == {
+        "type": "conflict",
+        "text": "Rollback time remains unmeasured.",
+        "round": 1,
+    }
+    assert second_hypothesis_context["previous_evidence"][0]["url"] == "https://example.com/source-1"
+    assert model.evidence_payloads[1]["prior_round"]["previous_evidence"][0]["source_title"] == "Source 1"
+
+
+def test_refinement_target_prioritizes_canonical_artifacts_in_order():
+    select = ReasoningOrchestrator._select_refinement_target
+    base_state = {
+        "iteration": 2,
+        "evidence": {"evidence": [{"claim": "Unverified cost estimate.", "url": None, "quality": "unverified"}]},
+        "perspectives": {"perspectives": [{"name": "performance", "tradeoffs": ["latency versus cost"]}]},
+    }
+
+    assert select(base_state, {"unresolved_conflicts": ["Recovery target is unknown."], "synthesis": "Measure recovery."})["type"] == "conflict"
+    assert select(base_state, {"unresolved_conflicts": [], "synthesis": "Measure recovery."})["type"] == "evidence_gap"
+
+    strong_evidence_state = {
+        **base_state,
+        "evidence": {"evidence": [{"claim": "Verified estimate.", "url": "https://example.com/verified", "quality": "high"}]},
+    }
+    assert select(strong_evidence_state, {"unresolved_conflicts": [], "synthesis": "Measure recovery."})["type"] == "perspective_tradeoff"
+    assert select({**strong_evidence_state, "perspectives": {"perspectives": []}}, {"unresolved_conflicts": [], "synthesis": "Measure recovery."}) == {
+        "type": "judge_synthesis",
+        "text": "Measure recovery.",
+        "round": 1,
+    }
+
+
+def test_refinement_evidence_does_not_reuse_a_previous_url():
+    from src.backend.agents.reasoning_agents import EvidenceRetriever
+
+    class DuplicateEvidenceModel:
+        def generate_json(self, instruction, payload, *, tools=None):
+            return {"evidence": [{"claim": "Repeated source.", "source_title": "Old source", "url": "https://example.com/old", "quality": "high"}]}
+
+    result = EvidenceRetriever().run(
+        DuplicateEvidenceModel(),
+        "Should we change platforms?",
+        {"hypotheses": []},
+        {"previous_evidence": [{"url": "https://example.com/old", "claim": "Old finding."}]},
+    )
+
+    assert result["evidence"][0]["url"] is None
+    assert result["evidence"][0]["source_title"] == "No new verified web source found"
+
+
 def test_judge_repairs_incomplete_output_before_persisting_it():
     from src.backend.agents.reasoning_agents import Judge
 
@@ -439,6 +523,60 @@ def test_deterministic_markdown_report_explains_only_canonical_artifacts():
     session["state"]["judge"] = {}
     fallback_report = build_markdown_report(json.dumps(session))
     assert "**Why:** The session considered 1 evidence item(s) across 1 perspective(s) and recorded 0 unresolved conflict(s). Overall confidence is 63 / 100." in fallback_report
+
+
+def test_markdown_report_aggregates_unique_evidence_from_all_round_nodes():
+    from src.backend.services.output_generator import build_markdown_report
+    import json
+
+    first_source = {"claim": "Round one finding.", "source_title": "First source", "url": "https://example.com/first", "quality": "medium"}
+    second_source = {"claim": "Round two finding.", "source_title": "Second source", "url": "https://example.com/second", "quality": "high"}
+    session = {
+        "question": "Should we continue the analysis?",
+        "state": {
+            "iteration": 2,
+            "confidence": {"score": 70, "evidence_quality": 80, "evidence_count": 2, "evidence_round_count": 2, "perspective_count": 3, "unresolved_conflicts": []},
+            "nodes": [
+                {"type": "evidence", "round": 1, "data": {"evidence": [first_source]}},
+                {"type": "evidence", "round": 2, "data": {"evidence": [first_source, second_source]}},
+            ],
+            "evidence": {"evidence": [second_source]},
+            "hypothesis": {"hypotheses": []},
+            "perspectives": {"perspectives": []},
+            "judge": {},
+            "conclusion": {"conclusion": "Continue only after measurement.", "caveats": [], "next_steps": []},
+        },
+    }
+
+    report = build_markdown_report(json.dumps(session))
+
+    assert "2 unique source(s) were recorded across 2 reasoning round(s)." in report
+    assert "[First source](https://example.com/first)" in report
+    assert "[Second source](https://example.com/second)" in report
+    assert "Evidence quality ✔ — 80 / 100 across 2 unique source(s) from 2 rounds" in report
+
+
+def test_confidence_uses_cumulative_graph_artifacts_but_latest_judge_conflicts():
+    orchestrator = ReasoningOrchestrator(FakeReasoningModel())
+    state = {
+        "evidence": {"evidence": [{"claim": "Latest", "url": "https://example.com/two", "quality": "medium"}]},
+        "perspectives": {"perspectives": [{"name": "performance"}]},
+        "judge": {"unresolved_conflicts": []},
+        "nodes": [
+            {"type": "evidence", "round": 1, "data": {"evidence": [{"claim": "First", "url": "https://example.com/one", "quality": "high"}]}},
+            {"type": "evidence", "round": 2, "data": {"evidence": [{"claim": "Latest", "url": "https://example.com/two", "quality": "medium"}]}},
+            {"type": "perspective", "round": 1, "data": {"perspectives": [{"name": "maintainability"}, {"name": "performance"}]}},
+            {"type": "perspective", "round": 2, "data": {"perspectives": [{"name": "performance"}, {"name": "scalability"}]}},
+        ],
+    }
+
+    confidence = orchestrator._evaluate_confidence(state)
+
+    assert confidence["evidence_count"] == 2
+    assert confidence["evidence_round_count"] == 2
+    assert confidence["perspective_count"] == 3
+    assert confidence["unresolved_conflicts"] == []
+    assert confidence["score"] == 87
 
 
 def test_exports_reject_missing_or_incomplete_sessions():

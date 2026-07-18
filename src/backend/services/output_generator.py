@@ -45,9 +45,48 @@ def _latest_node_data(state: dict[str, Any], node_type: str) -> dict[str, Any]:
     return {}
 
 
+def _historical_records(state: dict[str, Any], node_type: str, data_key: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for node in _records(state.get("nodes")):
+        if node.get("type") != node_type:
+            continue
+        records.extend(_records(_mapping(node.get("data")).get(data_key)))
+    if records:
+        return records
+    latest_key = "perspectives" if node_type == "perspective" else node_type
+    return _records(_mapping(state.get(latest_key)).get(data_key))
+
+
+def _unique_evidence(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    unique: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in records:
+        url = _text(item.get("url"), "").lower().rstrip("/")
+        claim = _claim_key(item.get("claim"))
+        if not url and not claim:
+            continue
+        key = f"url:{url}" if url else f"claim:{claim}"
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+    return unique
+
+
+def _evidence_round_count(state: dict[str, Any]) -> int:
+    rounds = {
+        node.get("round")
+        for node in _records(state.get("nodes"))
+        if node.get("type") == "evidence" and isinstance(node.get("round"), int)
+    }
+    return len(rounds)
+
+
 def _confidence_lines(confidence: dict[str, Any]) -> list[str]:
     score = confidence.get("score")
     quality = confidence.get("evidence_quality")
+    evidence_count = confidence.get("evidence_count")
+    evidence_round_count = confidence.get("evidence_round_count")
     perspectives = confidence.get("perspective_count")
     conflicts = _text_list(confidence.get("unresolved_conflicts"))
     if isinstance(score, (int, float)):
@@ -60,7 +99,12 @@ def _confidence_lines(confidence: dict[str, Any]) -> list[str]:
     lines.extend(["", "### Reason"])
     if isinstance(quality, (int, float)):
         rounded_quality = round(float(quality))
-        lines.append(f"- Evidence quality {'✔' if rounded_quality >= 50 else '✖'} — {rounded_quality} / 100")
+        scope = ""
+        if isinstance(evidence_count, int):
+            scope = f" across {evidence_count} unique source(s)"
+            if isinstance(evidence_round_count, int) and evidence_round_count > 1:
+                scope += f" from {evidence_round_count} rounds"
+        lines.append(f"- Evidence quality {'✔' if rounded_quality >= 50 else '✖'} — {rounded_quality} / 100{scope}")
     else:
         lines.append("- Evidence quality — unavailable")
     lines.append(f"- Unresolved conflicts {'✔' if not conflicts else '✖'} — {len(conflicts)} recorded")
@@ -82,7 +126,8 @@ def _deterministic_markdown(exported_session_json: str) -> str:
     state = _mapping(session.get("state"))
     confidence = _mapping(state.get("confidence"))
     conclusion = {**_latest_node_data(state, "conclusion"), **_mapping(state.get("conclusion"))}
-    evidence = _records(_mapping(state.get("evidence")).get("evidence"))
+    evidence = _unique_evidence(_historical_records(state, "evidence", "evidence"))
+    evidence_round_count = _evidence_round_count(state) or (1 if evidence else 0)
     perspectives = _records(_mapping(state.get("perspectives")).get("perspectives"))
     hypotheses = _records(_mapping(state.get("hypothesis")).get("hypotheses"))
     judge = {**_latest_node_data(state, "judge"), **_mapping(state.get("judge"))}
@@ -93,14 +138,6 @@ def _deterministic_markdown(exported_session_json: str) -> str:
     next_steps = _text_list(conclusion.get("next_steps"))
     validated_claims = _text_list(judge.get("validated_claims"))
     judge_summary = _text(judge.get("synthesis"), validated_claims[0] if validated_claims else "No Judge synthesis was recorded.")
-    claim_counts: dict[str, int] = {}
-    first_evidence_for_claim: dict[str, int] = {}
-    for index, item in enumerate(evidence, start=1):
-        key = _claim_key(item.get("claim"))
-        if not key:
-            continue
-        claim_counts[key] = claim_counts.get(key, 0) + 1
-        first_evidence_for_claim.setdefault(key, index)
     lines = [
         "# Thesision Reasoning Report",
         "",
@@ -116,20 +153,13 @@ def _deterministic_markdown(exported_session_json: str) -> str:
         lines.append("No evidence was recorded.")
     else:
         lines.extend([
-            "Each source is listed once. Per-item hypothesis links and confidence were not recorded in the canonical session.",
+            f"{len(evidence)} unique source(s) were recorded across {evidence_round_count} reasoning round(s). The table shows up to eight most recent sources; JSON retains the complete session.",
             "",
             "| # | Finding | Source focus | Strength |",
             "| --- | --- | --- | --- |",
         ])
-    for index, item in enumerate(evidence[:5], start=1):
-        claim_key = _claim_key(item.get("claim"))
-        repeated = claim_counts.get(claim_key, 0) > 1
-        first_index = first_evidence_for_claim.get(claim_key, index)
-        summary = (
-            _word_limit(item.get("claim"), 24, "No source summary was returned.")
-            if not repeated or index == first_index
-            else f"Same retrieved finding as Evidence #{first_index}."
-        )
+    for index, item in enumerate(evidence[-8:], start=max(1, len(evidence) - 7)):
+        summary = _word_limit(item.get("claim"), 24, "No source summary was returned.")
         lines.append(f"| {index} | {summary} | {_markdown_source(item)} | {_text(item.get('quality'), 'Not recorded')} |")
     lines.extend(["", "## Reasoning Trace", f"1. **Question:** {_word_limit(session.get('question'), 28, 'Unknown')}"])
     for index, hypothesis in enumerate(hypotheses[:3], start=1):
@@ -201,6 +231,8 @@ def _deterministic_markdown(exported_session_json: str) -> str:
 def build_markdown_report(exported_session_json: str, compressed_markdown: str | None = None) -> str:
     """Return model-compressed Markdown, or a concise deterministic JSON-derived fallback."""
     required_sections = ("## Confidence", "█", "### Reason", "## Evidence", "| # | Finding | Source focus | Strength |", "## Reasoning Trace", "## Caveats", "## Decision Would Change If", "<details>", "## Conclusion")
-    if isinstance(compressed_markdown, str) and compressed_markdown.strip() and all(section in compressed_markdown for section in required_sections):
+    # A report that omits cumulative scope would make later-round sources look ignored.
+    has_cumulative_evidence_scope = isinstance(compressed_markdown, str) and "unique source" in compressed_markdown.lower() and "round" in compressed_markdown.lower()
+    if isinstance(compressed_markdown, str) and compressed_markdown.strip() and has_cumulative_evidence_scope and all(section in compressed_markdown for section in required_sections):
         return compressed_markdown.strip() + "\n"
     return _deterministic_markdown(exported_session_json)

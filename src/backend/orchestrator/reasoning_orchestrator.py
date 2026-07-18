@@ -119,13 +119,75 @@ class ReasoningOrchestrator:
             )
 
     def _evaluate_confidence(self, state: dict[str, Any]) -> dict[str, Any]:
-        evidence = state.get("evidence", {}).get("evidence", [])
-        perspectives = state.get("perspectives", {}).get("perspectives", [])
+        # Nodes preserve every completed round; current state fields hold only the latest one.
+        evidence = self._unique_evidence(self._historical_records(state, "evidence", "evidence"))
+        perspectives = self._unique_perspectives(self._historical_records(state, "perspective", "perspectives"))
         conflicts = state.get("judge", {}).get("unresolved_conflicts", [])
         quality = [self._quality_score(item.get("quality")) for item in evidence if isinstance(item, dict)]
         average_quality = sum(quality) / len(quality) if quality else 0
         score = min(100, round(45 + min(30, average_quality * 0.3) + min(20, len(perspectives) * 6) - min(40, len(conflicts) * 20)))
-        return {"score": score, "evidence_quality": average_quality, "perspective_count": len(perspectives), "unresolved_conflicts": conflicts, "has_major_unresolved_conflict": bool(conflicts)}
+        evidence_round_count = len(
+            {
+                node.get("round")
+                for node in state.get("nodes", [])
+                if isinstance(node, dict) and node.get("type") == "evidence" and isinstance(node.get("round"), int)
+            }
+        )
+        return {
+            "score": score,
+            "evidence_quality": average_quality,
+            "evidence_count": len(evidence),
+            "evidence_round_count": evidence_round_count or (1 if evidence else 0),
+            "perspective_count": len(perspectives),
+            "unresolved_conflicts": conflicts,
+            "has_major_unresolved_conflict": bool(conflicts),
+        }
+
+    @staticmethod
+    def _historical_records(state: dict[str, Any], node_type: str, data_key: str) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for node in state.get("nodes", []):
+            if not isinstance(node, dict) or node.get("type") != node_type:
+                continue
+            data = node.get("data")
+            if isinstance(data, dict):
+                records.extend(item for item in data.get(data_key, []) if isinstance(item, dict))
+        if records:
+            return records
+        latest_key = "perspectives" if node_type == "perspective" else node_type
+        latest = state.get(latest_key)
+        return [item for item in latest.get(data_key, []) if isinstance(item, dict)] if isinstance(latest, dict) else []
+
+    @staticmethod
+    def _unique_evidence(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        unique: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in records:
+            url = item.get("url") if isinstance(item.get("url"), str) else ""
+            claim = item.get("claim") if isinstance(item.get("claim"), str) else ""
+            normalized_url = url.strip().lower().rstrip("/")
+            normalized_claim = " ".join(claim.lower().split())
+            if not normalized_url and not normalized_claim:
+                continue
+            key = f"url:{normalized_url}" if normalized_url else f"claim:{normalized_claim}"
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(item)
+        return unique
+
+    @staticmethod
+    def _unique_perspectives(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        unique: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in records:
+            name = item.get("name") if isinstance(item.get("name"), str) else ""
+            key = " ".join(name.lower().split())
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique.append(item)
+        return unique
 
     @staticmethod
     def _quality_score(value: Any) -> float:
@@ -141,7 +203,7 @@ class ReasoningOrchestrator:
 
     @staticmethod
     def _prior_round_context(state: dict[str, Any]) -> dict[str, Any] | None:
-        """Keep later rounds focused on persisted gaps without changing session data."""
+        """Focus later rounds on a canonical gap without changing public session data."""
         judge = state.get("judge")
         if not isinstance(judge, dict):
             return None
@@ -173,4 +235,59 @@ class ReasoningOrchestrator:
             "judge": judge,
             "confidence": state.get("confidence") if isinstance(state.get("confidence"), dict) else {},
             "previous_evidence": evidence_history[-20:],
+            "refinement_target": ReasoningOrchestrator._select_refinement_target(state, judge),
         }
+
+    @staticmethod
+    def _select_refinement_target(state: dict[str, Any], judge: dict[str, Any]) -> dict[str, Any]:
+        """Use deterministic artifact priority so later rounds investigate a real recorded gap."""
+        prior_round = ReasoningOrchestrator._latest_artifact_round(state, "judge")
+        conflicts = judge.get("unresolved_conflicts")
+        if isinstance(conflicts, list):
+            for conflict in conflicts:
+                if isinstance(conflict, str) and conflict.strip():
+                    return {"type": "conflict", "text": conflict.strip(), "round": ReasoningOrchestrator._latest_artifact_round(state, "conflict") or prior_round}
+
+        evidence = state.get("evidence")
+        items = evidence.get("evidence") if isinstance(evidence, dict) else []
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                quality = item.get("quality")
+                normalized_quality = quality.strip().lower() if isinstance(quality, str) else ""
+                url = item.get("url")
+                claim = item.get("claim")
+                if (not isinstance(url, str) or not url.strip()) or normalized_quality in {"", "low", "unverified"}:
+                    text = claim.strip() if isinstance(claim, str) and claim.strip() else "Verify the missing or weak evidence."
+                    return {"type": "evidence_gap", "text": text, "round": ReasoningOrchestrator._latest_artifact_round(state, "evidence") or prior_round}
+
+        perspectives = state.get("perspectives")
+        entries = perspectives.get("perspectives") if isinstance(perspectives, dict) else []
+        if isinstance(entries, list):
+            named_tradeoffs = [
+                (item.get("name").strip(), item.get("tradeoffs"))
+                for item in entries
+                if isinstance(item, dict)
+                and isinstance(item.get("name"), str)
+                and item.get("name").strip()
+                and isinstance(item.get("tradeoffs"), list)
+                and any(isinstance(tradeoff, str) and tradeoff.strip() for tradeoff in item["tradeoffs"])
+            ]
+            if named_tradeoffs:
+                name, tradeoffs = named_tradeoffs[0]
+                first_tradeoff = next(tradeoff.strip() for tradeoff in tradeoffs if isinstance(tradeoff, str) and tradeoff.strip())
+                return {"type": "perspective_tradeoff", "text": f"Evaluate the {name} trade-off: {first_tradeoff}", "round": ReasoningOrchestrator._latest_artifact_round(state, "perspective") or prior_round}
+
+        synthesis = judge.get("synthesis")
+        if isinstance(synthesis, str) and synthesis.strip():
+            return {"type": "judge_synthesis", "text": synthesis.strip(), "round": prior_round}
+        return {"type": "judge_synthesis", "text": "Refine the latest recorded decision gap.", "round": prior_round}
+
+    @staticmethod
+    def _latest_artifact_round(state: dict[str, Any], node_type: str) -> int | None:
+        for node in reversed(state.get("nodes", [])):
+            if isinstance(node, dict) and node.get("type") == node_type and isinstance(node.get("round"), int):
+                return node["round"]
+        iteration = state.get("iteration")
+        return iteration - 1 if isinstance(iteration, int) and iteration > 0 else None
