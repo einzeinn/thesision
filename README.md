@@ -41,6 +41,9 @@ recommendation, what remains uncertain, and what would change the result.
 - Examines maintainability, performance, and scalability perspectives.
 - Makes unresolved conflicts and missing decision inputs visible.
 - Produces a Judge synthesis and confidence score without hiding uncertainty.
+- Uses later rounds to investigate the most important recorded gap—an
+  unresolved conflict, weak evidence, perspective trade-off, or Judge
+  condition—instead of repeating the original question.
 - Exports a concise Markdown decision report and a portable JSON session.
 - Replays, imports, and continues completed reasoning sessions.
 
@@ -69,6 +72,13 @@ insufficient or material conflicts remain. Each completed Judge result must
 include a comparative synthesis and an explanation of whether conflicts remain;
 incomplete Judge output is repaired once or fails explicitly rather than being
 shown as an empty result.
+
+From Round 2 onward, Thesision keeps the same visible pipeline but gives the
+next Hypothesis and Evidence stages one deterministic refinement target from
+the preceding canonical artifacts. It prioritizes unresolved conflicts, then
+weak or missing evidence, perspective trade-offs, and finally the Judge
+synthesis. This keeps continued reasoning cumulative without treating the
+final recommendation as a prompt for more of the same.
 
 The frontend renders these artifacts as a deterministic constellation graph.
 Each question selects a stable layout template, so replay, imported sessions,
@@ -129,7 +139,7 @@ generator. It is responsible for:
 - comparing artifacts in the Judge stage;
 - synthesizing conditional conclusions;
 - composing concise Markdown reports from canonical session data; and
-- supporting iterative Continue Reasoning sessions.
+- supporting iterative Continue Reasoning sessions focused on recorded gaps.
 
 The application orchestrates multiple GPT-5.6 stages with structured JSON
 artifacts instead of relying on one prompt. Perplexity Sonar is used only for
@@ -210,7 +220,8 @@ No login is required.
 2. Enter an engineering decision question and select **Start Reasoning**.
 3. Inspect Evidence, Conflict, and Judge nodes; open an evidence source link.
 4. Export the completed session as Markdown or JSON.
-5. Optionally import the JSON and select **Continue Reasoning**.
+5. Optionally import the JSON and select **Continue Reasoning** to investigate
+   the highest-priority recorded gap in the imported session.
 
 `render.yaml` defines the Docker deployment. Set `AIMLAPI_API_KEY` as the only
 secret when creating the Render Blueprint. Render free-tier storage is

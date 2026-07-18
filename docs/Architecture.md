@@ -90,6 +90,12 @@ For later debate rounds, the Orchestrator supplies the previous Judge result
 and bounded evidence history to the Hypothesis and Evidence agents. This keeps
 rounds cumulative while preserving the same public session format.
 
+For Round 2 and later, the Orchestrator also selects one local refinement
+target from canonical artifacts: unresolved Conflict first, then weak or
+missing Evidence, a Perspective trade-off, and finally the latest Judge
+synthesis. The target focuses the next Hypothesis and Evidence stages without
+changing the fixed pipeline order or using the final Conclusion as input.
+
 Confidence evaluation likewise reads unique Evidence and Perspective artifacts
 from completed graph nodes across all rounds. It retains only the latest
 Judge's unresolved conflicts, because later rounds may resolve earlier gaps.

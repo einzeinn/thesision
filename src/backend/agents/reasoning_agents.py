@@ -18,8 +18,9 @@ class HypothesisGenerator:
                 "Generate engineering hypotheses. Return JSON with hypotheses (list of {claim, assumptions, unknowns}). "
                 "Do not make a final recommendation. "
                 + (
-                    "This is a refinement round. Use the prior Judge and evidence history to test unresolved conflicts, "
-                    "missing evidence, or weak assumptions. Do not merely restate an unchanged earlier hypothesis."
+                    "This is a refinement round. The canonical refinement_target identifies the specific prior artifact to test. "
+                    "Generate hypotheses that directly investigate that target, while retaining the original question as context. "
+                    "Do not merely restate an unchanged earlier hypothesis."
                     if is_refinement
                     else "This is the initial reasoning round."
                 )
@@ -51,7 +52,7 @@ class EvidenceRetriever:
                     "item with url null, source_title 'No verified web source found', and relevance and quality 'unverified'. Never invent "
                     "a source, title, or URL. "
                     + (
-                        "This is a refinement round: target the prior Judge's unresolved conflicts or evidence gaps, and do not return a URL "
+                        "This is a refinement round: retrieve evidence specifically relevant to canonical refinement_target, and do not return a URL "
                         "already present in previous_evidence unless it supplies a materially distinct finding."
                         if is_refinement
                         else ""

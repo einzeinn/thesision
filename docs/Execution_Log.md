@@ -185,6 +185,11 @@
 - Kept unresolved-conflict evaluation scoped to the latest Judge so resolved
   historical conflicts do not permanently penalize a session.
 
+### 2026-07-18 - RFC-023 Adaptive Refinement Targets
+
+- Added a documented plan for later rounds to focus on the highest-priority
+  canonical gap while retaining the fixed reasoning pipeline.
+
 ## Log Format
 
 Future executions should add a new dated section with:
