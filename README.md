@@ -255,5 +255,4 @@ tests/                   # Backend and integration regression coverage
 
 ## License
 
-License selection is pending. Add a license file before any use beyond hackathon
-evaluation.
+This project is licensed under the [MIT License](LICENSE).
